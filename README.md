@@ -121,9 +121,26 @@ termux-agent --root . build --command 'python -m pytest' --yes
 
 ## الاختبارات
 
+للاختبار المحلي داخل بيئة التطوير:
+
 ```bash
 python -m pytest
 ```
+
+لاختبار المشروع فعلياً على جهاز Android داخل Termux، انسخ الأمر التالي إلى Termux. سيقوم بتثبيت Git وPython، وسحب آخر نسخة من المستودع، وتثبيت حزمة الاختبارات، ثم تشغيل فحص البيئة واختبار الحوكمة وMCP وSQLite:
+
+```bash
+pkg install -y curl
+curl -fsSL https://raw.githubusercontent.com/iraqveo/termux-agent/main/scripts/run-device-smoke-test.sh | bash
+```
+
+يفحص الاختبار وجود Termux وGit وPython و`proot-distro` وTermux:API والتخزين المشترك، لكنه لا يعتبر الأدوات الاختيارية فشلاً. ولإرسال إشعار حقيقي عند النهاية:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/iraqveo/termux-agent/main/scripts/run-device-smoke-test.sh | TERMUX_AGENT_SEND_NOTIFICATION=1 bash
+```
+
+> إذا كان `curl` غير متاح، استخدم البديل الآمن التالي دون تنفيذ محتوى بعيد مباشرة: `pkg install -y git python` ثم `git clone https://github.com/iraqveo/termux-agent.git` ثم `cd termux-agent && bash scripts/run-device-smoke-test.sh`.
 
 ## الترخيص
 
