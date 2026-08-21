@@ -20,6 +20,9 @@ class FakeScreen:
     def get_wch(self):
         return next(self.keys)
 
+    def erase(self):
+        return None
+
     def move(self, *_args):
         return None
 

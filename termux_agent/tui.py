@@ -128,16 +128,23 @@ class TUIApp:
         screen.addstr(height - 1, 1, self._metadata_line(width - 2), curses.A_DIM)
         screen.refresh()
 
-    def read_draft(self, screen: Any) -> str:
-        """Read one draft interactively with partial redraw and cached token encoding."""
+    def read_draft(self, screen: Any, initial_key: object | None = None) -> str:
+        """Read a draft with one active input bar and safe redraw on resize."""
         buffer: list[str] = []
-        self.draft = ""
-        self.input_active = True
+        if isinstance(initial_key, str) and initial_key.isprintable():
+            buffer.append(initial_key)
+        self.draft = "".join(buffer)
+        self.input_active = bool(buffer)
+        last_size: tuple[int, int] | None = None
         curses.curs_set(0)
         try:
             while True:
                 self.draft = "".join(buffer)
                 height, width = screen.getmaxyx()
+                size = (height, width)
+                if size != last_size:
+                    screen.erase()
+                    last_size = size
                 self._draw_input_bar(screen, width, height)
                 key = screen.get_wch()
                 if key in ("\n", "\r"):
@@ -145,7 +152,7 @@ class TUIApp:
                 if key == "\x1b":
                     self.draft = ""
                     self.input_active = False
-                    self._draw_input_bar(screen, *screen.getmaxyx()[::-1])
+                    self._draw_input_bar(screen, width, height)
                     return ""
                 if key == "q" and not buffer:
                     self.exit_requested = True
@@ -156,6 +163,7 @@ class TUIApp:
                         buffer.pop()
                 elif isinstance(key, str) and key.isprintable():
                     buffer.append(key)
+                self.input_active = bool(buffer)
         finally:
             self.input_active = False
             curses.curs_set(0)
@@ -220,8 +228,13 @@ class TUIApp:
         curses.init_pair(1, curses.COLOR_CYAN, -1)
         curses.init_pair(2, curses.COLOR_YELLOW, -1)
         while True:
-            self.input_active = True
-            message = self.read_draft(screen)
+            self.input_active = False
+            self.draft = ""
+            self.draw(screen)
+            first_key = screen.get_wch()
+            if first_key == "q":
+                return
+            message = self.read_draft(screen, first_key)
             if self.exit_requested:
                 return
             self.add_message(message)

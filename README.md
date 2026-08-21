@@ -81,7 +81,7 @@ termux-agent --root . build --command 'python -m pytest' --yes
 
 ## الواجهة التفاعلية المحلية
 
-The TUI uses Python's standard `curses` module, so it needs no web server or network port. The visible screen is intentionally minimal: titles, session controls, governance panels, and footer hints remain hidden. After sending, only the latest message text is shown above the bottom question rectangle, for example `iraq`; a compact metadata line shows `Model`, `Repo`, and `Used`. The input is active immediately when the TUI opens, accepts characters directly, and uses `Enter` to send. Full message history and governance data continue to be stored internally in SQLite.
+The TUI uses Python's standard `curses` module, so it needs no web server or network port. The visible screen is intentionally minimal: titles, session controls, governance panels, and footer hints remain hidden. After sending, only the latest message text is shown above the single bottom question rectangle, for example `iraq`; a compact metadata line shows `Model`, `Repo`, and `Used`. The screen starts with one idle bar, activates it on the first typed key, shows the caret only while a draft exists, and uses `Enter` to send. Full message history and governance data continue to be stored internally in SQLite.
 
 | Key | Action |
 |---|---|
