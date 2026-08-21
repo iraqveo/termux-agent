@@ -23,6 +23,7 @@ class TUIApp:
         self.message = "Ready"
         self.draft = ""
         self.input_active = False
+        self.exit_requested = False
         if self.session_id is None:
             sessions = self.store.list(limit=1)
             self.session_id = sessions[0]["id"] if sessions else self.store.create("Chat session")
@@ -48,7 +49,7 @@ class TUIApp:
         lines: list[str] = []
         messages = record.get("messages") or []
         if messages:
-            lines.extend(self._wrap(f"agent {messages[-1].get('content', '')}", max(4, width - 2))[:4])
+            lines.extend(self._wrap(str(messages[-1].get("content", "")), max(4, width - 2))[:4])
             lines.append("")
         prompt = self.draft if self.draft else "Ask your question..."
         if self.input_active:
@@ -112,7 +113,7 @@ class TUIApp:
         messages = record.get("messages") or []
         if not messages:
             return
-        content = f"agent {messages[-1].get('content', '')}"
+        content = str(messages[-1].get("content", ""))
         max_rows = max(1, height - 6)
         for row, line in enumerate(self._wrap(content, max(4, width - 4))[-max_rows:], start=1):
             screen.addstr(row, 2, self._clip(line, max(1, width - 4)))
@@ -145,6 +146,10 @@ class TUIApp:
                     self.draft = ""
                     self.input_active = False
                     self._draw_input_bar(screen, *screen.getmaxyx()[::-1])
+                    return ""
+                if key == "q" and not buffer:
+                    self.exit_requested = True
+                    self.input_active = False
                     return ""
                 if key in (curses.KEY_BACKSPACE, "\b", "\x7f"):
                     if buffer:
@@ -215,16 +220,11 @@ class TUIApp:
         curses.init_pair(1, curses.COLOR_CYAN, -1)
         curses.init_pair(2, curses.COLOR_YELLOW, -1)
         while True:
-            self.draw(screen)
-            key = screen.getch()
-            if key in (ord("q"), 27):
+            self.input_active = True
+            message = self.read_draft(screen)
+            if self.exit_requested:
                 return
-            if key in (10, 13, ord("i")):
-                self.add_message(self.read_draft(screen))
-            elif key == ord("r"):
-                self.message = "Refreshed"
-            elif key == ord("?"):
-                self.message = "Enter  Type message     q  Quit"
+            self.add_message(message)
 
 
 def run_tui(root: Path, database: Path, session_id: str | None = None) -> None:

@@ -2,10 +2,41 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import curses
+
 from termux_agent.permissions import GovernanceState, Policy
 from termux_agent.session import SessionStore
 from termux_agent.tools import ToolRuntime
 from termux_agent.tui import TUIApp
+
+
+class FakeScreen:
+    def __init__(self, keys: list[object]):
+        self.keys = iter(keys)
+
+    def getmaxyx(self):
+        return (24, 80)
+
+    def get_wch(self):
+        return next(self.keys)
+
+    def move(self, *_args):
+        return None
+
+    def clrtoeol(self):
+        return None
+
+    def addstr(self, *_args):
+        return None
+
+    def attron(self, *_args):
+        return None
+
+    def attroff(self, *_args):
+        return None
+
+    def refresh(self):
+        return None
 
 
 def test_governance_snapshot_survives_new_runtime(tmp_path: Path) -> None:
@@ -19,16 +50,28 @@ def test_governance_snapshot_survives_new_runtime(tmp_path: Path) -> None:
     assert second.status()["consecutive_executions"] == 0
 
 
-def test_last_sent_message_is_rendered_without_panels(tmp_path: Path) -> None:
+def test_last_sent_message_is_rendered_without_prefix_or_panels(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions.db")
     session_id = store.create("message display")
     app = TUIApp(tmp_path, tmp_path / "sessions.db", session_id)
-    app.add_message("hello from Termux")
+    app.add_message("iraq")
     rendered = "\n".join(app.render_lines(width=100))
-    assert "agent hello from Termux" in rendered
+    assert "iraq" in rendered
+    assert "agent iraq" not in rendered
     assert "TERMUX AGENT" not in rendered
     assert "Conversation" not in rendered
     assert "❯ Ask your question..." in rendered
+
+
+def test_read_draft_accepts_text_and_enter(tmp_path: Path, monkeypatch) -> None:
+    store = SessionStore(tmp_path / "sessions.db")
+    session_id = store.create("interactive input")
+    app = TUIApp(tmp_path, tmp_path / "sessions.db", session_id)
+    monkeypatch.setattr(curses, "curs_set", lambda _value: None)
+    monkeypatch.setattr(curses, "color_pair", lambda _value: 0)
+    screen = FakeScreen(["i", "r", "a", "q", "\n"])
+    assert app.read_draft(screen) == "iraq"
+    assert app.input_active is False
 
 
 def test_tui_metadata_is_cached_during_typing(tmp_path: Path) -> None:
