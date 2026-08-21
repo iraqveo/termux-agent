@@ -25,7 +25,7 @@ def test_last_sent_message_is_rendered_without_panels(tmp_path: Path) -> None:
     app = TUIApp(tmp_path, tmp_path / "sessions.db", session_id)
     app.add_message("hello from Termux")
     rendered = "\n".join(app.render_lines(width=100))
-    assert "hello from Termux" in rendered
+    assert "agent hello from Termux" in rendered
     assert "TERMUX AGENT" not in rendered
     assert "Conversation" not in rendered
     assert "❯ Ask your question..." in rendered
