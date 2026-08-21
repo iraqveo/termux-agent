@@ -1,4 +1,4 @@
-"""Small local TUI for Termux Agent using Python's standard curses module."""
+"""Clean, chat-first local TUI for Termux Agent."""
 
 from __future__ import annotations
 
@@ -9,158 +9,139 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-from .permissions import GovernanceError, Policy
+from .permissions import EvidenceKind
 from .session import SessionStore
-from .tools import ToolRuntime
-
-
-STATE_COLORS = {
-    "ANALYZING": 1,
-    "PREVIEWING": 2,
-    "SELF_REVIEW": 3,
-    "EXECUTING": 4,
-    "HALTED": 5,
-}
 
 
 class TUIApp:
+    """Minimal mobile chat surface; persistence and governance stay behind the UI."""
+
     def __init__(self, root: Path, database: Path, session_id: str | None = None):
         self.root = root.expanduser().resolve()
         self.store = SessionStore(database.expanduser())
         self.session_id = session_id
-        self.sessions: list[dict[str, Any]] = []
-        self.selected = 0
-        self.message = "Press ? for help"
-        self.show_help = False
-        self.refresh_sessions()
-        if self.session_id:
-            for index, session in enumerate(self.sessions):
-                if session["id"] == self.session_id:
-                    self.selected = index
-                    break
-        elif self.sessions:
-            self.session_id = self.sessions[0]["id"]
-        else:
-            self.session_id = self.store.create("TUI session")
-            self.refresh_sessions()
+        self.message = "جاهز"
+        if self.session_id is None:
+            sessions = self.store.list(limit=1)
+            self.session_id = sessions[0]["id"] if sessions else self.store.create("جلسة محادثة")
 
-    def refresh_sessions(self) -> None:
-        self.sessions = self.store.list(limit=100)
-        if self.sessions:
-            self.selected = min(self.selected, len(self.sessions) - 1)
-            if self.session_id not in {item["id"] for item in self.sessions}:
-                self.session_id = self.sessions[self.selected]["id"]
+    @staticmethod
+    def _clip(value: object, width: int) -> str:
+        text = str(value).replace("\n", " ")
+        if width <= 1:
+            return ""
+        return text if len(text) <= width else text[: width - 1] + "…"
 
-    def selected_record(self) -> dict[str, Any] | None:
-        return self.store.get(self.session_id) if self.session_id else None
+    @staticmethod
+    def _wrap(value: object, width: int) -> list[str]:
+        return textwrap.wrap(str(value), width=max(4, width), break_long_words=False) or [""]
 
-    def selected_state(self, record: dict[str, Any] | None) -> str:
-        return str((record or {}).get("governance", {}).get("state", "ANALYZING"))
+    def selected_record(self) -> dict[str, Any]:
+        return self.store.get(self.session_id) or {"messages": []}
 
     def render_lines(self, width: int = 100) -> list[str]:
+        """Accessible text fallback used by tests and small terminals."""
         record = self.selected_record()
-        state = self.selected_state(record)
-        governance = (record or {}).get("governance") or {}
-        events = (record or {}).get("governance_events") or []
-        evidence = (record or {}).get("evidence") or []
-        session = (record or {}).get("session") or {}
-        lines = [
-            "TERMUX AGENT | local governance console",
-            f"Session: {session.get('title', 'none')}  [{str(self.session_id or '')[:12]}]",
-            f"State: {state}    Steps: {governance.get('consecutive_executions', 0)}/3    Root: {self.root}",
-            "",
-            "Lifecycle: ANALYZING -> PREVIEWING -> SELF_REVIEW -> EXECUTING -> HALTED",
-            "",
-            "Recent audit events:",
-        ]
-        if events:
-            for event in events[-6:]:
-                transition = f"{event.get('from_state', '?')} -> {event.get('to_state', '?')}"
-                lines.append(f"  {event.get('event', '?')}: {transition} | {event.get('reason', '')[:width - 42]}")
+        lines = ["TERMUX AGENT", "", "Conversation"]
+        messages = record.get("messages") or []
+        if not messages:
+            lines.extend(["", "مرحباً.", "اكتب رسالتك في الأسفل للبدء."])
         else:
-            lines.append("  No audit events yet.")
-        lines.append("")
-        lines.append("Recent evidence:")
-        if evidence:
-            for item in evidence[-5:]:
-                lines.append(f"  [{item.get('kind', 'UNKNOWN')}] {item.get('source', '?')}: {item.get('content', '')[:width - 30]}")
-        else:
-            lines.append("  No evidence yet.")
-        lines.append("")
-        lines.append(f"Message: {self.message}")
+            for item in messages[-8:]:
+                role = "أنت" if item.get("role") == "user" else "وكيل"
+                lines.append(f"{role}: {self._clip(item.get('content', ''), max(20, width - 8))}")
+        lines.extend(["", self.message, "↑ إرسال"])
         return lines
 
-    def prompt(self, screen: Any, label: str) -> str:
+    def add_message(self, content: str) -> None:
+        content = content.strip()
+        if not content:
+            self.message = "اكتب رسالة أولاً"
+            return
+        self.store.add_message(self.session_id, "user", content)
+        self.store.add_evidence(self.session_id, EvidenceKind.UNKNOWN.value, "tui.message", content)
+        self.message = "تم الحفظ محلياً"
+
+    def _prompt(self, screen: Any) -> str:
         height, width = screen.getmaxyx()
-        screen.addstr(height - 2, 0, (label + " ")[: width - 1])
+        prompt = "اكتب رسالتك: "
+        screen.move(height - 1, 1)
+        screen.clrtoeol()
+        screen.addstr(height - 1, 1, self._clip(prompt, width - 2))
         screen.refresh()
         curses.echo()
         try:
-            value = screen.getstr(height - 1, 0, max(1, width - 1)).decode("utf-8", errors="replace")
+            value = screen.getstr(height - 1, min(width - 2, len(prompt) + 2), max(1, width - len(prompt) - 3))
+            return value.decode("utf-8", errors="replace").strip()
         finally:
             curses.noecho()
-        return value.strip()
 
-    def approve(self) -> None:
-        if not self.session_id:
+    def _draw_header(self, screen: Any, width: int) -> None:
+        title = "TERMUX AGENT"
+        x = max(1, (width - len(title)) // 2)
+        screen.attron(curses.color_pair(1) | curses.A_BOLD)
+        screen.addstr(0, x, title)
+        screen.attroff(curses.color_pair(1) | curses.A_BOLD)
+        screen.addstr(1, 1, "─" * max(1, width - 2), curses.A_DIM)
+
+    def _draw_messages(self, screen: Any, width: int, height: int) -> None:
+        record = self.selected_record()
+        messages = record.get("messages") or []
+        top = 3
+        bottom = height - 5
+        if not messages:
+            screen.attron(curses.color_pair(1) | curses.A_BOLD)
+            screen.addstr(top, 2, self._clip("مرحباً، كيف أساعدك؟", width - 4))
+            screen.attroff(curses.color_pair(1) | curses.A_BOLD)
+            screen.addstr(top + 2, 2, self._clip("اكتب طلبك في الأسفل ثم اضغط Enter.", width - 4), curses.A_DIM)
             return
-        runtime = ToolRuntime(self.root, Policy(mode="build"), session_store=self.store, session_id=self.session_id)
-        try:
-            runtime.approve_execution("approved from TUI")
-            self.message = "Approved: PREVIEWING -> SELF_REVIEW -> EXECUTING"
-        except GovernanceError as exc:
-            self.message = f"Approval blocked: {exc}"
 
-    def halt(self) -> None:
-        if not self.session_id:
-            return
-        runtime = ToolRuntime(self.root, Policy(mode="plan"), session_store=self.store, session_id=self.session_id)
-        reason = self.message if self.message != "Press ? for help" else "manual halt from TUI"
-        try:
-            runtime.halt(reason)
-            self.message = "Session halted"
-        except GovernanceError as exc:
-            self.message = f"Halt blocked: {exc}"
+        row = top
+        for item in messages[-10:]:
+            if row >= bottom:
+                break
+            is_user = item.get("role") == "user"
+            label = "أنت" if is_user else "الوكيل"
+            color = 2 if is_user else 1
+            screen.attron(curses.color_pair(color) | curses.A_BOLD)
+            screen.addstr(row, 2, label)
+            screen.attroff(curses.color_pair(color) | curses.A_BOLD)
+            row += 1
+            for wrapped in self._wrap(item.get("content", ""), width - 6)[:3]:
+                if row >= bottom:
+                    break
+                screen.addstr(row, 3, self._clip(wrapped, width - 5))
+                row += 1
+            row += 1
 
-    def new_session(self, screen: Any) -> None:
-        title = self.prompt(screen, "New session title:") or "TUI session"
-        self.session_id = self.store.create(title)
-        self.refresh_sessions()
-        self.selected = next((i for i, item in enumerate(self.sessions) if item["id"] == self.session_id), 0)
-        self.message = f"Created session: {title}"
+    def _draw_composer(self, screen: Any, width: int, height: int) -> None:
+        """Draw exactly two compact bottom rows with a centered send arrow."""
+        left = 1
+        inner = max(8, width - 2)
+        top = height - 4
+        line_one = "╭" + "─" * (inner - 2) + "╮"
+        line_two = "│" + " " * (inner - 2) + "│"
+        screen.addstr(top, left, line_one[: width - 1])
+        screen.addstr(top + 1, left, line_two[: width - 1])
+        arrow = "↑"
+        send = " إرسال "
+        center = max(left + 2, (width - len(arrow + send)) // 2)
+        screen.attron(curses.color_pair(1) | curses.A_BOLD)
+        screen.addstr(top + 1, center, f"{arrow}{send}")
+        screen.attroff(curses.color_pair(1) | curses.A_BOLD)
+        screen.addstr(height - 1, 1, self._clip("Enter كتابة رسالة   q خروج", width - 2), curses.A_DIM)
 
     def draw(self, screen: Any) -> None:
         screen.erase()
         height, width = screen.getmaxyx()
-        if height < 12 or width < 60:
-            screen.addstr(0, 0, "Terminal too small; resize to at least 60x12. Press q to quit.")
+        if height < 10 or width < 40:
+            screen.addstr(0, 0, "كبّر نافذة Termux إلى 40x10 على الأقل · q للخروج")
             screen.refresh()
             return
-        screen.attron(curses.color_pair(1))
-        screen.addstr(0, 0, " TERMUX AGENT ".center(width)[:width - 1])
-        screen.attroff(curses.color_pair(1))
-        left_width = max(24, min(34, width // 3))
-        screen.vline(1, left_width, curses.ACS_VLINE, height - 3)
-        screen.addstr(1, 1, "SESSIONS"[: left_width - 2], curses.A_BOLD)
-        for index, session in enumerate(self.sessions[: height - 5]):
-            marker = ">" if index == self.selected else " "
-            title = str(session.get("title", ""))[: left_width - 8]
-            line = f"{marker} {index + 1:02d} {title}"
-            attr = curses.A_REVERSE if index == self.selected else curses.A_NORMAL
-            screen.addstr(2 + index, 1, line.ljust(left_width - 2)[: left_width - 2], attr)
-        screen.addstr(height - 2, 1, "n new  a approve  h halt  r refresh"[: left_width - 2])
-        screen.addstr(height - 1, 1, "j/k select  e evidence  ? help  q quit"[: left_width - 2])
-
-        record = self.selected_record()
-        state = self.selected_state(record)
-        screen.attron(curses.color_pair(STATE_COLORS.get(state, 1)) | curses.A_BOLD)
-        screen.addstr(1, left_width + 2, f" {state} ")
-        screen.attroff(curses.color_pair(STATE_COLORS.get(state, 1)) | curses.A_BOLD)
-        available = width - left_width - 4
-        lines = self.render_lines(available)
-        for row, line in enumerate(lines[: height - 3], start=2):
-            clipped = line.replace("\n", " ")[:available]
-            screen.addstr(row, left_width + 2, clipped)
+        self._draw_header(screen, width)
+        self._draw_messages(screen, width, height)
+        screen.addstr(height - 5, 1, self._clip(self.message, width - 2), curses.A_DIM)
+        self._draw_composer(screen, width, height)
         screen.refresh()
 
     def run(self, screen: Any) -> None:
@@ -170,39 +151,21 @@ class TUIApp:
         curses.use_default_colors()
         curses.init_pair(1, curses.COLOR_CYAN, -1)
         curses.init_pair(2, curses.COLOR_YELLOW, -1)
-        curses.init_pair(3, curses.COLOR_MAGENTA, -1)
-        curses.init_pair(4, curses.COLOR_GREEN, -1)
-        curses.init_pair(5, curses.COLOR_RED, -1)
         while True:
             self.draw(screen)
             key = screen.getch()
             if key in (ord("q"), 27):
                 return
-            if key in (curses.KEY_DOWN, ord("j")) and self.sessions:
-                self.selected = min(self.selected + 1, len(self.sessions) - 1)
-                self.session_id = self.sessions[self.selected]["id"]
-            elif key in (curses.KEY_UP, ord("k")) and self.sessions:
-                self.selected = max(self.selected - 1, 0)
-                self.session_id = self.sessions[self.selected]["id"]
-            elif key == ord("n"):
-                self.new_session(screen)
-            elif key == ord("a"):
-                self.approve()
-            elif key == ord("h"):
-                self.halt()
+            if key in (10, 13, ord("i")):
+                self.add_message(self._prompt(screen))
             elif key == ord("r"):
-                self.refresh_sessions()
-                self.message = "Refreshed"
-            elif key == ord("e"):
-                record = self.selected_record() or {}
-                self.message = f"Evidence records: {len(record.get('evidence', []))}; audit events: {len(record.get('governance_events', []))}"
+                self.message = "تم التحديث"
             elif key == ord("?"):
-                self.message = "Keys: n=new, a=approve, h=halt, r=refresh, e=counts, j/k=select, q=quit"
+                self.message = "Enter كتابة رسالة · q خروج"
 
 
 def run_tui(root: Path, database: Path, session_id: str | None = None) -> None:
-    app = TUIApp(root, database, session_id)
-    curses.wrapper(app.run)
+    curses.wrapper(TUIApp(root, database, session_id).run)
 
 
 def main(argv: list[str] | None = None) -> int:

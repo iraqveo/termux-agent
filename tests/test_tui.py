@@ -26,6 +26,7 @@ def test_tui_renders_session_state_and_audit_sections(tmp_path: Path) -> None:
     runtime.approve_execution()
     app = TUIApp(tmp_path, tmp_path / "sessions.db", session_id)
     rendered = "\n".join(app.render_lines(width=100))
-    assert "EXECUTING" in rendered
-    assert "Recent audit events" in rendered
-    assert "Lifecycle" in rendered
+    assert "Conversation" in rendered
+    assert "↑ إرسال" in rendered
+    assert "governance" not in rendered.lower()
+    assert "evidence" not in rendered.lower()
