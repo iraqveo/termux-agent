@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.env
+.env.*
+.terraform/
+.termux-agent/
+*.db
+*.sqlite
+build/
+dist/
+.DS_Store

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "termux-agent"
+version = "0.1.0"
+description = "A safe, local-first AI coding agent runtime for Termux"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Manus AI"}]
+dependencies = []
+
+[project.scripts]
+termux-agent = "termux_agent.cli:main"
+termux-agent-mcp = "termux_agent.mcp_server:main"
+
+[tool.setuptools.packages.find]
+include = ["termux_agent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

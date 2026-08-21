@@ -1,0 +1,81 @@
+name: Termux Agent CI and Automation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issues:
+    types: [opened]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests
+    if: github.event_name != 'issues'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install project
+        run: python -m pip install --disable-pip-version-check -e .
+      - name: Run tests
+        run: python -m pytest
+
+  todo-scan:
+    name: Weekly TODO scan
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Scan and open a bounded maintenance issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/github_automation.py scan-todos --root .
+
+  pull-request-review:
+    name: Pull request review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Run deterministic review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_PAYLOAD: ${{ toJson(github.event.pull_request) }}
+        run: python scripts/github_automation.py review-pr
+
+  issue-triage:
+    name: Issue triage
+    if: github.event_name == 'issues' && github.event.action == 'opened'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Classify without executing issue content
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_PAYLOAD: ${{ toJson(github.event) }}
+        run: python scripts/github_automation.py triage-issue
