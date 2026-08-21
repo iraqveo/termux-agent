@@ -17,6 +17,9 @@ class FakeScreen:
     def getmaxyx(self):
         return (24, 80)
 
+    def keypad(self, *_args):
+        return None
+
     def get_wch(self):
         return next(self.keys)
 
@@ -158,3 +161,36 @@ def test_tui_keeps_user_message_when_provider_fails(tmp_path: Path):
     assert len(record["messages"]) == 1
     assert record["messages"][0]["role"] == "user"
     assert "402" in app.message
+
+
+def test_touch_event_does_not_clear_existing_draft(tmp_path: Path, monkeypatch):
+    store = SessionStore(tmp_path / "sessions.db")
+    session_id = store.create("touch input")
+    app = TUIApp(tmp_path, tmp_path / "sessions.db", session_id, client=None)
+    app.draft = "keep this question"
+    app.input_active = True
+    monkeypatch.setattr(curses, "curs_set", lambda _value: None)
+    monkeypatch.setattr(curses, "color_pair", lambda _value: 0)
+    monkeypatch.setattr(curses, "getmouse", lambda: (0, 10, 5, 0, 0))
+    screen = FakeScreen([curses.KEY_MOUSE, "\n"])
+
+    assert app.read_draft(screen) == "keep this question"
+
+
+def test_run_handles_touch_then_submits_text(tmp_path: Path, monkeypatch):
+    store = SessionStore(tmp_path / "sessions.db")
+    session_id = store.create("touch submit")
+    app = TUIApp(tmp_path, tmp_path / "sessions.db", session_id, client=None)
+    monkeypatch.setattr(curses, "curs_set", lambda _value: None)
+    monkeypatch.setattr(curses, "color_pair", lambda _value: 0)
+    monkeypatch.setattr(curses, "getmouse", lambda: (0, 10, 5, 0, 0))
+    monkeypatch.setattr(curses, "mousemask", lambda _mask: (0, 0))
+    monkeypatch.setattr(curses, "start_color", lambda: None)
+    monkeypatch.setattr(curses, "use_default_colors", lambda: None)
+    monkeypatch.setattr(curses, "init_pair", lambda *_args: None)
+    screen = FakeScreen([curses.KEY_MOUSE, "h", "i", "\n", "q"])
+
+    app.run(screen)
+
+    record = app.selected_record()
+    assert record["messages"][-1]["content"] == "hi"

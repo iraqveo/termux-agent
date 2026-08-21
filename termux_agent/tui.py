@@ -179,9 +179,21 @@ class TUIApp:
         screen.addstr(height - 1, 1, self._metadata_line(width - 2), curses.A_DIM)
         screen.refresh()
 
+    def _handle_mouse(self, screen: Any) -> None:
+        """Keep the draft intact when Termux sends a touch/mouse event."""
+        try:
+            _mouse_id, _x, y, _z, _buttons = curses.getmouse()
+            height, _width = screen.getmaxyx()
+        except curses.error:
+            return
+        input_top = max(0, height - 4)
+        if input_top <= y < height - 1:
+            self.input_active = True
+            self._draw_input_bar(screen, screen.getmaxyx()[1], height)
+
     def read_draft(self, screen: Any, initial_key: object | None = None) -> str:
         """Read a draft with one active input bar and safe redraw on resize."""
-        buffer: list[str] = []
+        buffer: list[str] = list(self.draft)
         if isinstance(initial_key, str) and initial_key.isprintable():
             buffer.append(initial_key)
         self.draft = "".join(buffer)
@@ -198,6 +210,9 @@ class TUIApp:
                     last_size = size
                 self._draw_input_bar(screen, width, height)
                 key = screen.get_wch()
+                if key == getattr(curses, "KEY_MOUSE", object()):
+                    self._handle_mouse(screen)
+                    continue
                 if key in ("\n", "\r"):
                     return self.draft.strip()
                 if key == "\x1b":
@@ -273,15 +288,20 @@ class TUIApp:
     def run(self, screen: Any) -> None:
         curses.curs_set(0)
         screen.keypad(True)
+        try:
+            curses.mousemask(curses.ALL_MOUSE_EVENTS)
+        except curses.error:
+            pass
         curses.start_color()
         curses.use_default_colors()
         curses.init_pair(1, curses.COLOR_CYAN, -1)
         curses.init_pair(2, curses.COLOR_YELLOW, -1)
         while True:
-            self.input_active = False
-            self.draft = ""
             self.draw(screen)
             first_key = screen.get_wch()
+            if first_key == getattr(curses, "KEY_MOUSE", object()):
+                self._handle_mouse(screen)
+                continue
             if first_key == "q":
                 return
             message = self.read_draft(screen, first_key)
