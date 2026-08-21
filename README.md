@@ -106,7 +106,7 @@ While composing a message, the footer updates after every keypress:
 Model: gpt-4o-mini  |  Repo: termux-agent  |  Draft: 12 tokens  |  Used: 0
 ```
 
-`Draft` is counted locally with the selected model's `tiktoken` encoding. `Used` is the accumulated provider usage stored in SQLite and is not guessed. If `tiktoken` is unavailable, the draft value is shown as `—` rather than an invented exact number. Configure the model and repository labels with:
+`Draft` is counted locally with the selected model's `tiktoken` encoding. `Used` is the accumulated provider usage stored in SQLite and is not guessed. If `tiktoken` is unavailable, the draft value is shown as `—` rather than an invented exact number. The input loop caches the model encoding and metadata, then redraws only the four bottom rows while typing; it does not clear the whole screen or query SQLite on every keypress. Configure the model and repository labels with:
 
 ```bash
 export TERMUX_AGENT_MODEL="gpt-4o-mini"

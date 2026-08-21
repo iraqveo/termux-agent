@@ -11,7 +11,7 @@ from typing import Any
 
 from .permissions import EvidenceKind
 from .session import SessionStore
-from .tokenizer import count_tokens
+from .tokenizer import encoding_for_model
 
 
 class TUIApp:
@@ -24,9 +24,13 @@ class TUIApp:
         self.message = "Ready"
         self.draft = ""
         self.draft_tokens: int | None = 0
+        self.model = os.getenv("TERMUX_AGENT_MODEL", "gpt-4o-mini")
+        self._encoding = encoding_for_model(self.model)
+        self._last_counted_draft: str | None = None
         if self.session_id is None:
             sessions = self.store.list(limit=1)
             self.session_id = sessions[0]["id"] if sessions else self.store.create("Chat session")
+        self._metadata = self._load_metadata()
 
     @staticmethod
     def _clip(value: object, width: int) -> str:
@@ -51,16 +55,33 @@ class TUIApp:
             self._metadata_line(width),
         ]
 
-    def _metadata_line(self, width: int) -> str:
+    def _load_metadata(self) -> dict[str, Any]:
         usage = self.store.get_usage(self.session_id)
-        model = os.getenv("TERMUX_AGENT_MODEL", str(usage.get("model", "Not connected")))
-        repository = os.getenv("TERMUX_AGENT_REPOSITORY", "") or str(usage.get("repository", "")) or self.root.name
-        used = int(usage.get("total_tokens", 0))
+        return {
+            "model": os.getenv("TERMUX_AGENT_MODEL", str(usage.get("model", "Not connected"))),
+            "repository": os.getenv("TERMUX_AGENT_REPOSITORY", "") or str(usage.get("repository", "")) or self.root.name,
+            "used": int(usage.get("total_tokens", 0)),
+        }
+
+    def _metadata_line(self, width: int) -> str:
         draft = str(self.draft_tokens) if self.draft_tokens is not None else "—"
         return self._clip(
-            f"Model: {model}  |  Repo: {repository}  |  Draft: {draft} tokens  |  Used: {used:,}",
+            f"Model: {self._metadata['model']}  |  Repo: {self._metadata['repository']}  |  "
+            f"Draft: {draft} tokens  |  Used: {self._metadata['used']:,}",
             max(1, width),
         )
+
+    def _count_draft(self, text: str) -> int | None:
+        if text == self._last_counted_draft:
+            return self.draft_tokens
+        self._last_counted_draft = text
+        if self._encoding is None:
+            return None
+        try:
+            self.draft_tokens = len(self._encoding.encode(text, disallowed_special=()))
+        except Exception:
+            self.draft_tokens = None
+        return self.draft_tokens
 
     def add_message(self, content: str) -> None:
         content = content.strip()
@@ -69,7 +90,10 @@ class TUIApp:
             return
         self.store.add_message(self.session_id, "user", content)
         self.store.add_evidence(self.session_id, EvidenceKind.UNKNOWN.value, "tui.message", content)
+        self.draft = ""
+        self.draft_tokens = self._count_draft("")
         self.message = "Saved locally"
+        self._metadata = self._load_metadata()
 
     def _draw_question_bar(self, screen: Any, width: int, top: int, draft: str | None = None) -> None:
         rule = "─" * max(1, width - 2)
@@ -81,24 +105,36 @@ class TUIApp:
         screen.attroff(curses.color_pair(1) | curses.A_BOLD)
         screen.addstr(top + 2, 1, rule[: max(1, width - 2)], curses.A_DIM)
 
+    def _draw_input_bar(self, screen: Any, width: int, height: int) -> None:
+        """Redraw only the four bottom rows; typing never clears the whole screen."""
+        top = height - 4
+        for row in range(top, height):
+            screen.move(row, 0)
+            screen.clrtoeol()
+        self._draw_question_bar(screen, width, top, self.draft)
+        screen.addstr(height - 1, 1, self._metadata_line(width - 2), curses.A_DIM)
+        screen.refresh()
+
     def read_draft(self, screen: Any) -> str:
-        """Read one draft interactively and refresh the token count per keypress."""
+        """Read one draft interactively with partial redraw and cached token encoding."""
         buffer: list[str] = []
-        model = os.getenv("TERMUX_AGENT_MODEL", "gpt-4o-mini")
         self.draft = ""
-        self.draft_tokens = count_tokens("", model)
+        self._last_counted_draft = None
+        self.draft_tokens = self._count_draft("")
         curses.curs_set(1)
         try:
             while True:
                 self.draft = "".join(buffer)
-                self.draft_tokens = count_tokens(self.draft, model)
-                self.draw(screen)
+                self.draft_tokens = self._count_draft(self.draft)
+                height, width = screen.getmaxyx()
+                self._draw_input_bar(screen, width, height)
                 key = screen.get_wch()
                 if key in ("\n", "\r"):
                     return self.draft.strip()
                 if key == "\x1b":
                     self.draft = ""
-                    self.draft_tokens = count_tokens("", model)
+                    self.draft_tokens = self._count_draft("")
+                    self._draw_input_bar(screen, *screen.getmaxyx()[::-1])
                     return ""
                 if key in (curses.KEY_BACKSPACE, "\b", "\x7f"):
                     if buffer:
@@ -148,10 +184,6 @@ class TUIApp:
                 row += 1
             row += 1
 
-    def _draw_input_bar(self, screen: Any, width: int, height: int) -> None:
-        """Draw the only visible surface at the bottom of the screen."""
-        self._draw_question_bar(screen, width, height - 4, self.draft)
-        screen.addstr(height - 1, 1, self._metadata_line(width - 2), curses.A_DIM)
 
     def draw(self, screen: Any) -> None:
         screen.erase()
