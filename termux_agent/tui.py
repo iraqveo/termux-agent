@@ -42,7 +42,7 @@ class TUIApp:
     def render_lines(self, width: int = 100) -> list[str]:
         """Accessible text fallback used by tests and small terminals."""
         record = self.selected_record()
-        lines = ["─" * min(width, 72), "❯ Ask your question...", "─" * min(width, 72), "TERMUX AGENT", "", "Conversation"]
+        lines = ["TERMUX AGENT", "", "Conversation"]
         messages = record.get("messages") or []
         if not messages:
             lines.extend(["", "Hello.", "Type your message below to get started."])
@@ -50,7 +50,7 @@ class TUIApp:
             for item in messages[-8:]:
                 role = "You" if item.get("role") == "user" else "Agent"
                 lines.append(f"{role}: {self._clip(item.get('content', ''), max(20, width - 8))}")
-        lines.extend(["", self.message, "↑ Send"])
+        lines.extend(["", self.message, "─" * min(width, 72), "❯ Ask your question...", "─" * min(width, 72)])
         return lines
 
     def add_message(self, content: str) -> None:
@@ -76,13 +76,13 @@ class TUIApp:
         finally:
             curses.noecho()
 
-    def _draw_question_bar(self, screen: Any, width: int) -> None:
+    def _draw_question_bar(self, screen: Any, width: int, top: int) -> None:
         rule = "─" * max(1, width - 2)
-        screen.addstr(0, 1, rule[: max(1, width - 2)], curses.A_DIM)
+        screen.addstr(top, 1, rule[: max(1, width - 2)], curses.A_DIM)
         screen.attron(curses.color_pair(1) | curses.A_BOLD)
-        screen.addstr(1, 1, self._clip("❯ Ask your question...", max(1, width - 2)))
+        screen.addstr(top + 1, 1, self._clip("❯ Ask your question...", max(1, width - 2)))
         screen.attroff(curses.color_pair(1) | curses.A_BOLD)
-        screen.addstr(2, 1, rule[: max(1, width - 2)], curses.A_DIM)
+        screen.addstr(top + 2, 1, rule[: max(1, width - 2)], curses.A_DIM)
 
     def _draw_header(self, screen: Any, width: int) -> None:
         title = "TERMUX AGENT"
@@ -95,7 +95,7 @@ class TUIApp:
     def _draw_messages(self, screen: Any, width: int, height: int) -> None:
         record = self.selected_record()
         messages = record.get("messages") or []
-        top = 6
+        top = 3
         bottom = height - 5
         if not messages:
             screen.attron(curses.color_pair(1) | curses.A_BOLD)
@@ -122,20 +122,9 @@ class TUIApp:
                 row += 1
             row += 1
 
-    def _draw_composer(self, screen: Any, width: int, height: int) -> None:
-        """Draw a compact two-row composer with a centered send affordance."""
-        left = 1
-        inner = max(16, width - 2)
-        top = height - 4
-        top_border = "╭" + "─" * (inner - 2) + "╮"
-        input_row = "│  Type your message…" + " " * max(0, inner - 23) + "│"
-        screen.addstr(top, left, top_border[: width - 1])
-        screen.addstr(top + 1, left, input_row[: width - 1])
-        send_label = "↑ Send"
-        center = max(left + 2, (width - len(send_label)) // 2)
-        screen.attron(curses.color_pair(1) | curses.A_BOLD)
-        screen.addstr(top + 1, center, send_label[: max(1, width - center - 1)])
-        screen.attroff(curses.color_pair(1) | curses.A_BOLD)
+    def _draw_input_bar(self, screen: Any, width: int, height: int) -> None:
+        """Draw the only input surface at the bottom of the screen."""
+        self._draw_question_bar(screen, width, height - 4)
         screen.addstr(height - 1, 1, self._clip("Enter  Type message     q  Quit", width - 2), curses.A_DIM)
 
     def draw(self, screen: Any) -> None:
@@ -145,11 +134,10 @@ class TUIApp:
             screen.addstr(0, 0, "Resize Termux to at least 40x13 · q to quit")
             screen.refresh()
             return
-        self._draw_question_bar(screen, width)
         self._draw_header(screen, width)
         self._draw_messages(screen, width, height)
         screen.addstr(height - 5, 1, self._clip(self.message, width - 2), curses.A_DIM)
-        self._draw_composer(screen, width, height)
+        self._draw_input_bar(screen, width, height)
         screen.refresh()
 
     def run(self, screen: Any) -> None:
