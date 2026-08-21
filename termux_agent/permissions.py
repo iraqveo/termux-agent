@@ -82,6 +82,31 @@ class GovernanceController:
     _last_failure_digest: str | None = field(default=None, init=False)
     _last_failure_count: int = field(default=0, init=False)
 
+    @classmethod
+    def from_snapshot(
+        cls,
+        snapshot: dict[str, Any] | None,
+        audit_sink: Callable[[dict[str, Any]], None] | None = None,
+    ) -> "GovernanceController":
+        if not snapshot:
+            return cls(audit_sink=audit_sink)
+        controller = cls(
+            state=GovernanceState(str(snapshot.get("state", GovernanceState.ANALYZING.value))),
+            audit_sink=audit_sink,
+            consecutive_executions=int(snapshot.get("consecutive_executions", 0)),
+        )
+        controller._last_failure_digest = snapshot.get("last_failure_digest")
+        controller._last_failure_count = int(snapshot.get("last_failure_count", 0))
+        return controller
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "state": self.state.value,
+            "consecutive_executions": self.consecutive_executions,
+            "last_failure_digest": self._last_failure_digest,
+            "last_failure_count": self._last_failure_count,
+        }
+
     def _audit(self, event: dict[str, Any]) -> None:
         if self.audit_sink is not None:
             self.audit_sink(event)

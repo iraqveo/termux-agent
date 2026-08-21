@@ -66,6 +66,14 @@ class SessionStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_evidence_session
                     ON evidence(session_id, id);
+                CREATE TABLE IF NOT EXISTS governance_snapshots (
+                    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+                    state TEXT NOT NULL,
+                    consecutive_executions INTEGER NOT NULL,
+                    last_failure_digest TEXT,
+                    last_failure_count INTEGER NOT NULL,
+                    updated_at REAL NOT NULL
+                );
                 """
             )
 
@@ -89,6 +97,41 @@ class SessionStore:
                 (session_id, role, content, now),
             )
             db.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))
+
+    def save_governance_snapshot(self, session_id: str | None, snapshot: dict[str, Any]) -> None:
+        if not session_id:
+            return
+        now = time.time()
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO governance_snapshots
+                   (session_id, state, consecutive_executions, last_failure_digest, last_failure_count, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(session_id) DO UPDATE SET
+                     state = excluded.state,
+                     consecutive_executions = excluded.consecutive_executions,
+                     last_failure_digest = excluded.last_failure_digest,
+                     last_failure_count = excluded.last_failure_count,
+                     updated_at = excluded.updated_at""",
+                (
+                    session_id,
+                    str(snapshot.get("state", "ANALYZING")),
+                    int(snapshot.get("consecutive_executions", 0)),
+                    snapshot.get("last_failure_digest"),
+                    int(snapshot.get("last_failure_count", 0)),
+                    now,
+                ),
+            )
+            db.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))
+
+    def get_governance_snapshot(self, session_id: str) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT state, consecutive_executions, last_failure_digest, last_failure_count, updated_at "
+                "FROM governance_snapshots WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        return dict(row) if row else None
 
     def add_governance_event(self, session_id: str | None, event: dict[str, Any]) -> None:
         now = time.time()
@@ -152,8 +195,14 @@ class SessionStore:
                 "SELECT kind, source, content, metadata_json, created_at FROM evidence WHERE session_id = ? ORDER BY id",
                 (session_id,),
             ).fetchall()
+            snapshot = db.execute(
+                "SELECT state, consecutive_executions, last_failure_digest, last_failure_count, updated_at "
+                "FROM governance_snapshots WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
         return {
             "session": dict(session),
+            "governance": dict(snapshot) if snapshot else None,
             "messages": [dict(row) for row in messages],
             "governance_events": [dict(row) for row in events],
             "evidence": [dict(row) for row in evidence],

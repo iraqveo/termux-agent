@@ -40,6 +40,8 @@ def build_parser() -> argparse.ArgumentParser:
     evidence.add_argument("--source", required=True)
     evidence.add_argument("--content", required=True)
 
+    sub.add_parser("tui", help="open the local interactive terminal interface")
+
     session = sub.add_parser("session", help="manage local sessions")
     session_sub = session.add_subparsers(dest="session_command", required=True)
     new = session_sub.add_parser("new")
@@ -79,6 +81,12 @@ def get_runtime(args: argparse.Namespace, mode: str = "plan") -> tuple[ToolRunti
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.mode == "tui":
+            from .tui import run_tui
+
+            run_tui(Path(args.root), database_path(args), args.session_id)
+            return 0
+
         if args.mode == "session":
             store = SessionStore(database_path(args))
             if args.session_command == "new":

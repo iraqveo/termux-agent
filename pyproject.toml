@@ -18,6 +18,7 @@ test = ["pytest>=8"]
 [project.scripts]
 termux-agent = "termux_agent.cli:main"
 termux-agent-mcp = "termux_agent.mcp_server:main"
+termux-agent-tui = "termux_agent.tui:main"
 
 [tool.setuptools.packages.find]
 include = ["termux_agent*"]

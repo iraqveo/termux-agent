@@ -62,6 +62,12 @@ termux-agent --db .termux-agent/sessions.db governance status
 # البناء: يتطلب تأكيداً صريحاً قبل الأوامر أو التعديلات
 termux-agent --root . build --command 'python -m pytest' --yes
 
+# فتح الواجهة التفاعلية المحلية
+termux-agent --root . tui
+
+# أو عبر الأمر المستقل
+termux-agent-tui --root . --db ~/.termux-agent/sessions.db
+
 # تشغيل خادم الأدوات عبر stdio
 termux-agent-mcp --root . --mode plan
 ```
@@ -72,6 +78,23 @@ termux-agent-mcp --root . --mode plan
 termux-agent --root . governance approve
 termux-agent --root . build --command 'python -m pytest' --yes
 ```
+
+## الواجهة التفاعلية المحلية
+
+تعمل الواجهة عبر `curses` من المكتبة القياسية، ولا تحتاج إلى خادم ويب أو منفذ شبكة. تعرض قائمة الجلسات، والحالة الحالية، وعدد الخطوات التنفيذية، وآخر أحداث التدقيق، وسجل الأدلة. كما تسمح بإنشاء جلسة، والموافقة على المرور إلى `EXECUTING`، وإيقاف الجلسة، وتحديث العرض.
+
+| المفتاح | الوظيفة |
+|---|---|
+| `n` | إنشاء جلسة جديدة. |
+| `j` / `k` أو الأسهم | التنقل بين الجلسات. |
+| `a` | تنفيذ بوابة الموافقة: `PREVIEWING → SELF_REVIEW → EXECUTING`. |
+| `h` | إيقاف الجلسة بحالة `HALTED`. |
+| `r` | تحديث البيانات من SQLite. |
+| `e` | عرض عدد الأدلة وأحداث التدقيق. |
+| `?` | عرض تذكير بالاختصارات. |
+| `q` أو `Esc` | الخروج. |
+
+إذا كانت شاشة Termux صغيرة، كبّر النافذة إلى 60 عموداً و12 سطراً على الأقل.
 
 ## نموذج MCP
 

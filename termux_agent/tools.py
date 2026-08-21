@@ -25,13 +25,16 @@ class ToolRuntime:
         if not self.root.is_dir():
             raise NotADirectoryError(self.root)
         if self.governance is None:
-            self.governance = GovernanceController(audit_sink=self._audit)
+            snapshot = self.session_store.get_governance_snapshot(self.session_id) if self.session_store and self.session_id else None
+            self.governance = GovernanceController.from_snapshot(snapshot, audit_sink=self._audit)
         elif self.governance.audit_sink is None:
             self.governance.audit_sink = self._audit
 
     def _audit(self, event: dict[str, Any]) -> None:
         if self.session_store is not None:
             self.session_store.add_governance_event(self.session_id, event)
+            if self.governance is not None:
+                self.session_store.save_governance_snapshot(self.session_id, self.governance.snapshot())
 
     def _evidence(self, kind: EvidenceKind, source: str, content: str, metadata: dict[str, Any] | None = None) -> None:
         if self.session_store is not None:
