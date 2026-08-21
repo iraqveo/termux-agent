@@ -4,7 +4,7 @@
 
 ## ما الذي يقدمه المشروع؟
 
-يحتوي المشروع على خادم أدوات محلي متوافق مع نمط MCP عبر `stdio`، وواجهة سطر أوامر، وطبقة صلاحيات تفصل بين **وضع التخطيط** و**وضع البناء**. الأدوات المدمجة قليلة وعالية الإشارة: قراءة الملفات، البحث النصي، تعديل ملف، تنفيذ أمر مضبوط، وإرسال إشعار إلى Termux:API. وتُحفظ الجلسات محلياً في SQLite، مع سجل تغييرات Git يمكن استخدامه للتراجع.
+يحتوي المشروع على خادم أدوات محلي متوافق مع نمط MCP عبر `stdio`، وواجهة سطر أوامر، وطبقة حوكمة تمر عبر **ANALYZING / PREVIEWING / SELF_REVIEW / EXECUTING** قبل السماح بالكتابة أو التنفيذ. الأدوات المدمجة قليلة وعالية الإشارة: قراءة الملفات، البحث النصي، تعديل ملف، تنفيذ أمر مضبوط، وإرسال إشعار إلى Termux:API. وتُحفظ الجلسات محلياً في SQLite، مع سجل تغييرات Git وأحداث حوكمة وأدلة مصنفة يمكن استخدامها للتراجع والمراجعة.
 
 > ملاحظة أمنية: هذا المشروع لا ينفذ أوامر تشغيلية أو يرسل تعليقات إلى GitHub تلقائياً إلا عند تشغيل الأمر صراحةً أو من خلال سير عمل GitHub Actions مفعّل من مالك المستودع.
 
@@ -54,19 +54,23 @@ apt update && apt install -y python3 python3-pip build-essential git
 termux-agent session new --title 'إصلاح الاختبارات'
 
 # التخطيط: قراءة واستكشاف فقط
-termux-agent plan --root . --task 'حل أخطاء الاختبارات'
+termux-agent --root . plan --task 'حل أخطاء الاختبارات'
+
+# عرض حالة الحوكمة
+termux-agent --db .termux-agent/sessions.db governance status
 
 # البناء: يتطلب تأكيداً صريحاً قبل الأوامر أو التعديلات
-termux-agent build --root . --command 'python -m pytest'
+termux-agent --root . build --command 'python -m pytest' --yes
 
 # تشغيل خادم الأدوات عبر stdio
 termux-agent-mcp --root . --mode plan
 ```
 
-في وضع البناء، يمكن تمرير `--yes` فقط عندما يكون الاستدعاء مقصوداً ومراجَعاً:
+في وضع البناء، يمكن تمرير `--yes` فقط عندما يكون الاستدعاء مقصوداً ومراجَعاً. ولعرض الموافقة كخطوة منفصلة:
 
 ```bash
-termux-agent build --root . --command 'python -m pytest' --yes
+termux-agent --root . governance approve
+termux-agent --root . build --command 'python -m pytest' --yes
 ```
 
 ## نموذج MCP
@@ -91,14 +95,19 @@ termux-agent build --root . --command 'python -m pytest' --yes
 }
 ```
 
-## نموذج الصلاحيات
+## نموذج الحوكمة والصلاحيات
 
-| الوضع | القراءة | البحث | الكتابة | تنفيذ الأوامر |
-|---|---:|---:|---:|---:|
-| `plan` | نعم | نعم | لا | لا |
-| `build` | نعم | نعم | نعم | نعم، مع قائمة سماح وتأكيد |
+| الحالة | القراءة والبحث | الكتابة والتنفيذ | الانتقال التالي |
+|---|---:|---:|---|
+| `ANALYZING` | نعم | لا | `PREVIEWING` أو `HALTED` |
+| `PREVIEWING` | نعم | لا | `SELF_REVIEW` أو `HALTED` |
+| `SELF_REVIEW` | نعم | لا | `EXECUTING` أو `HALTED` |
+| `EXECUTING` | نعم | نعم، بعد المطابقة الدقيقة | `ANALYZING` عند الفشل أو `HALTED` عند الحد |
+| `HALTED` | لا توجد عمليات تنفيذ | لا | جلسة جديدة |
 
-الأوامر التنفيذية المسموحة افتراضياً هي أوامر الاختبار والبناء الآمنة نسبياً، مثل `pytest`, `python`, `npm test`, `npm run build`, `git diff`, و`git status`. ويمكن تغيير القائمة عبر `TERMUX_AGENT_ALLOWED_COMMANDS` بصيغة JSON.
+يُسمح بالتنفيذ فقط بعد المرور الصريح بالمراحل الثلاث الأولى. يوقف النظام التنفيذ بعد ثلاث خطوات ناجحة متتابعة، أو بعد تكرار سبب الفشل نفسه مرتين. كل نتيجة تُسجل كدليل `OBSERVED` أو `INFERRED` أو `UNKNOWN` في SQLite.
+
+الأوامر التنفيذية المسموحة افتراضياً هي قائمة **exact argv**، مثل `pytest`, `python -m pytest`, `npm test`, `npm run build`, `git diff`, و`git status`. لا تكفي مطابقة جزء من النص، وتُرفض عوامل shell مثل `&&`, `||`, `;`, `|`, وإعادة التوجيه. ويظل denylist الدفاعي فعالاً ضد `rm`, `sudo`, أغلفة shell، `git push`، وعمليات النشر حتى لو أُضيفت بالخطأ إلى allowlist. ويمكن تغيير القائمة عبر `TERMUX_AGENT_ALLOWED_COMMANDS` بصيغة JSON من سلاسل أو مصفوفات argv.
 
 ## GitHub Actions
 
