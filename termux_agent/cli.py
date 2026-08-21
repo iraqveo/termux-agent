@@ -42,6 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("tui", help="open the local interactive terminal interface")
 
+    api = sub.add_parser("api", help="test an external OpenAI-compatible API")
+    api_sub = api.add_subparsers(dest="api_command", required=True)
+    api_test = api_sub.add_parser("test", help="send one real request using the environment API key")
+    api_test.add_argument("--prompt", default="Reply with exactly: TERMUX_AGENT_API_OK")
+
     session = sub.add_parser("session", help="manage local sessions")
     session_sub = session.add_subparsers(dest="session_command", required=True)
     new = session_sub.add_parser("new")
@@ -85,6 +90,33 @@ def main(argv: list[str] | None = None) -> int:
             from .tui import run_tui
 
             run_tui(Path(args.root), database_path(args), args.session_id)
+            return 0
+
+        if args.mode == "api":
+            from .api import OpenAICompatibleClient
+
+            client = OpenAICompatibleClient()
+            store, session_id = get_store_and_session(args)
+            response = client.complete(args.prompt)
+            repository = os.getenv("TERMUX_AGENT_REPOSITORY", Path(args.root).expanduser().resolve().name)
+            store.add_message(session_id, "user", args.prompt)
+            store.add_message(session_id, "assistant", response.text)
+            store.record_usage(
+                session_id,
+                response.model,
+                repository,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+            )
+            emit({
+                "session_id": session_id,
+                "ok": True,
+                "model": response.model,
+                "text": response.text,
+                "input_tokens": response.input_tokens,
+                "output_tokens": response.output_tokens,
+                "total_tokens": response.total_tokens,
+            })
             return 0
 
         if args.mode == "session":

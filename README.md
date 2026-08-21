@@ -79,6 +79,21 @@ termux-agent --root . governance approve
 termux-agent --root . build --command 'python -m pytest' --yes
 ```
 
+## Real API connectivity test
+
+The agent can send a real one-request connectivity test to an OpenAI-compatible chat-completions endpoint. The API key is read only from the Termux process environment and is never written to SQLite, displayed in the TUI, committed to Git, or included in error messages. Do not paste the key into chat or into a source file.
+
+In Termux, set the key for the current shell and run the test:
+
+```bash
+read -rsp "API key: " TERMUX_AGENT_API_KEY; export TERMUX_AGENT_API_KEY; echo
+export TERMUX_AGENT_MODEL="gpt-4o-mini"
+export TERMUX_AGENT_BASE_URL="https://api.openai.com/v1"
+termux-agent --root "$HOME/termux-agent" api test
+```
+
+The command sends the default prompt `Reply with exactly: TERMUX_AGENT_API_OK`, prints the provider reply and usage totals, and records only the model, repository, and token counts in the local session database. You can provide another safe test prompt with `--prompt`. For OpenAI-compatible providers, change `TERMUX_AGENT_BASE_URL` and `TERMUX_AGENT_MODEL`; the default endpoint is `https://api.openai.com/v1`.
+
 ## الواجهة التفاعلية المحلية
 
 The TUI uses Python's standard `curses` module, so it needs no web server or network port. The visible screen is intentionally minimal: titles, session controls, governance panels, and footer hints remain hidden. After sending, only the latest user message is shown above the single bottom question rectangle with the `You >` prefix, for example `You > iraq`; a compact metadata line shows `Model`, `Repo`, and `Used`. The screen starts with one idle bar, activates it on the first typed key, shows the caret only while a draft exists, and uses `Enter` to send. Full message history and governance data continue to be stored internally in SQLite.
