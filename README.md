@@ -92,6 +92,27 @@ The TUI uses Python's standard `curses` module, so it needs no web server or net
 
 On small Termux screens, resize the terminal to at least 40 columns by 7 rows.
 
+### Live token counter
+
+Install the optional tokenizer support in Termux with:
+
+```bash
+pip install -e '.[tokens]'
+```
+
+While composing a message, the footer updates after every keypress:
+
+```text
+Model: gpt-4o-mini  |  Repo: termux-agent  |  Draft: 12 tokens  |  Used: 0
+```
+
+`Draft` is counted locally with the selected model's `tiktoken` encoding. `Used` is the accumulated provider usage stored in SQLite and is not guessed. If `tiktoken` is unavailable, the draft value is shown as `—` rather than an invented exact number. Configure the model and repository labels with:
+
+```bash
+export TERMUX_AGENT_MODEL="gpt-4o-mini"
+export TERMUX_AGENT_REPOSITORY="iraqveo/termux-agent"
+```
+
 ## نموذج MCP
 
 الخادم يرسل ويستقبل رسائل JSON متسلسلة عبر `stdin/stdout`. كل طلب يأخذ الشكل التالي:

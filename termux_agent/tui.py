@@ -11,6 +11,7 @@ from typing import Any
 
 from .permissions import EvidenceKind
 from .session import SessionStore
+from .tokenizer import count_tokens
 
 
 class TUIApp:
@@ -21,6 +22,8 @@ class TUIApp:
         self.store = SessionStore(database.expanduser())
         self.session_id = session_id
         self.message = "Ready"
+        self.draft = ""
+        self.draft_tokens: int | None = 0
         if self.session_id is None:
             sessions = self.store.list(limit=1)
             self.session_id = sessions[0]["id"] if sessions else self.store.create("Chat session")
@@ -52,8 +55,12 @@ class TUIApp:
         usage = self.store.get_usage(self.session_id)
         model = os.getenv("TERMUX_AGENT_MODEL", str(usage.get("model", "Not connected")))
         repository = os.getenv("TERMUX_AGENT_REPOSITORY", "") or str(usage.get("repository", "")) or self.root.name
-        tokens = int(usage.get("total_tokens", 0))
-        return self._clip(f"Model: {model}  |  Repo: {repository}  |  Tokens: {tokens:,}", max(1, width))
+        used = int(usage.get("total_tokens", 0))
+        draft = str(self.draft_tokens) if self.draft_tokens is not None else "—"
+        return self._clip(
+            f"Model: {model}  |  Repo: {repository}  |  Draft: {draft} tokens  |  Used: {used:,}",
+            max(1, width),
+        )
 
     def add_message(self, content: str) -> None:
         content = content.strip()
@@ -64,27 +71,44 @@ class TUIApp:
         self.store.add_evidence(self.session_id, EvidenceKind.UNKNOWN.value, "tui.message", content)
         self.message = "Saved locally"
 
-    def _prompt(self, screen: Any) -> str:
-        height, width = screen.getmaxyx()
-        prompt = "Message: "
-        screen.move(height - 1, 1)
-        screen.clrtoeol()
-        screen.addstr(height - 1, 1, self._clip(prompt, width - 2))
-        screen.refresh()
-        curses.echo()
-        try:
-            value = screen.getstr(height - 1, min(width - 2, len(prompt) + 2), max(1, width - len(prompt) - 3))
-            return value.decode("utf-8", errors="replace").strip()
-        finally:
-            curses.noecho()
-
-    def _draw_question_bar(self, screen: Any, width: int, top: int) -> None:
+    def _draw_question_bar(self, screen: Any, width: int, top: int, draft: str | None = None) -> None:
         rule = "─" * max(1, width - 2)
         screen.addstr(top, 1, rule[: max(1, width - 2)], curses.A_DIM)
+        text = draft if draft else "Ask your question..."
+        prompt = self._clip(f"❯ {text}", max(1, width - 2))
         screen.attron(curses.color_pair(1) | curses.A_BOLD)
-        screen.addstr(top + 1, 1, self._clip("❯ Ask your question...", max(1, width - 2)))
+        screen.addstr(top + 1, 1, prompt)
         screen.attroff(curses.color_pair(1) | curses.A_BOLD)
         screen.addstr(top + 2, 1, rule[: max(1, width - 2)], curses.A_DIM)
+
+    def read_draft(self, screen: Any) -> str:
+        """Read one draft interactively and refresh the token count per keypress."""
+        buffer: list[str] = []
+        model = os.getenv("TERMUX_AGENT_MODEL", "gpt-4o-mini")
+        self.draft = ""
+        self.draft_tokens = count_tokens("", model)
+        curses.curs_set(1)
+        try:
+            while True:
+                self.draft = "".join(buffer)
+                self.draft_tokens = count_tokens(self.draft, model)
+                self.draw(screen)
+                key = screen.get_wch()
+                if key in ("\n", "\r"):
+                    return self.draft.strip()
+                if key == "\x1b":
+                    self.draft = ""
+                    self.draft_tokens = count_tokens("", model)
+                    return ""
+                if key in (curses.KEY_BACKSPACE, "\b", "\x7f"):
+                    if buffer:
+                        buffer.pop()
+                elif isinstance(key, str) and key.isprintable():
+                    buffer.append(key)
+        finally:
+            curses.curs_set(0)
+
+
 
     def _draw_header(self, screen: Any, width: int) -> None:
         title = "TERMUX AGENT"
@@ -126,7 +150,7 @@ class TUIApp:
 
     def _draw_input_bar(self, screen: Any, width: int, height: int) -> None:
         """Draw the only visible surface at the bottom of the screen."""
-        self._draw_question_bar(screen, width, height - 4)
+        self._draw_question_bar(screen, width, height - 4, self.draft)
         screen.addstr(height - 1, 1, self._metadata_line(width - 2), curses.A_DIM)
 
     def draw(self, screen: Any) -> None:
@@ -152,7 +176,7 @@ class TUIApp:
             if key in (ord("q"), 27):
                 return
             if key in (10, 13, ord("i")):
-                self.add_message(self._prompt(screen))
+                self.add_message(self.read_draft(screen))
             elif key == ord("r"):
                 self.message = "Refreshed"
             elif key == ord("?"):

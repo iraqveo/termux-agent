@@ -35,4 +35,5 @@ def test_tui_renders_session_state_and_audit_sections(tmp_path: Path) -> None:
     assert "evidence" not in rendered.lower()
     assert "Model: gpt-test" in rendered
     assert "Repo: termux-agent" in rendered
-    assert "Tokens: 20" in rendered
+    assert "Draft: 0 tokens" in rendered
+    assert "Used: 20" in rendered
