@@ -92,21 +92,21 @@ The TUI uses Python's standard `curses` module, so it needs no web server or net
 
 On small Termux screens, resize the terminal to at least 40 columns by 7 rows.
 
-### Live token counter
+### Input responsiveness and usage footer
 
-Install the optional tokenizer support in Termux with:
-
-```bash
-pip install -e '.[tokens]'
-```
-
-While composing a message, the footer updates after every keypress:
+The live Draft tokenizer has been removed from the typing path to keep input responsive on mobile hardware. While composing, a visible caret appears after the current text:
 
 ```text
-Model: gpt-4o-mini  |  Repo: termux-agent  |  Draft: 12 tokens  |  Used: 0
+❯ Ask your question...▌
 ```
 
-`Draft` is counted locally with the selected model's `tiktoken` encoding. `Used` is the accumulated provider usage stored in SQLite and is not guessed. If `tiktoken` is unavailable, the draft value is shown as `—` rather than an invented exact number. The input loop caches the model encoding and metadata, then redraws only the four bottom rows while typing; it does not clear the whole screen or query SQLite on every keypress. Configure the model and repository labels with:
+The footer shows only persistent provider usage:
+
+```text
+Model: gpt-4o-mini  |  Repo: termux-agent  |  Used: 0
+```
+
+`Used` is the accumulated provider usage stored in SQLite and is not guessed. The input loop caches metadata, redraws only the four bottom rows, and does not query SQLite or run tokenization on every keypress. Configure the model and repository labels with:
 
 ```bash
 export TERMUX_AGENT_MODEL="gpt-4o-mini"

@@ -11,7 +11,6 @@ from typing import Any
 
 from .permissions import EvidenceKind
 from .session import SessionStore
-from .tokenizer import encoding_for_model
 
 
 class TUIApp:
@@ -23,10 +22,7 @@ class TUIApp:
         self.session_id = session_id
         self.message = "Ready"
         self.draft = ""
-        self.draft_tokens: int | None = 0
-        self.model = os.getenv("TERMUX_AGENT_MODEL", "gpt-4o-mini")
-        self._encoding = encoding_for_model(self.model)
-        self._last_counted_draft: str | None = None
+        self.input_active = False
         if self.session_id is None:
             sessions = self.store.list(limit=1)
             self.session_id = sessions[0]["id"] if sessions else self.store.create("Chat session")
@@ -54,9 +50,12 @@ class TUIApp:
         if messages:
             lines.extend(self._wrap(messages[-1].get("content", ""), max(4, width - 2))[:4])
             lines.append("")
+        prompt = self.draft if self.draft else "Ask your question..."
+        if self.input_active:
+            prompt += "▌"
         lines.extend([
             "─" * min(width, 72),
-            "❯ Ask your question...",
+            f"❯ {prompt}",
             "─" * min(width, 72),
             self._metadata_line(width),
         ])
@@ -71,24 +70,11 @@ class TUIApp:
         }
 
     def _metadata_line(self, width: int) -> str:
-        draft = str(self.draft_tokens) if self.draft_tokens is not None else "—"
         return self._clip(
             f"Model: {self._metadata['model']}  |  Repo: {self._metadata['repository']}  |  "
-            f"Draft: {draft} tokens  |  Used: {self._metadata['used']:,}",
+            f"Used: {self._metadata['used']:,}",
             max(1, width),
         )
-
-    def _count_draft(self, text: str) -> int | None:
-        if text == self._last_counted_draft:
-            return self.draft_tokens
-        self._last_counted_draft = text
-        if self._encoding is None:
-            return None
-        try:
-            self.draft_tokens = len(self._encoding.encode(text, disallowed_special=()))
-        except Exception:
-            self.draft_tokens = None
-        return self.draft_tokens
 
     def add_message(self, content: str) -> None:
         content = content.strip()
@@ -98,15 +84,23 @@ class TUIApp:
         self.store.add_message(self.session_id, "user", content)
         self.store.add_evidence(self.session_id, EvidenceKind.UNKNOWN.value, "tui.message", content)
         self.draft = ""
-        self.draft_tokens = self._count_draft("")
+        self.input_active = False
         self.message = "Saved locally"
         self._metadata = self._load_metadata()
 
-    def _draw_question_bar(self, screen: Any, width: int, top: int, draft: str | None = None) -> None:
+    def _draw_question_bar(
+        self,
+        screen: Any,
+        width: int,
+        top: int,
+        draft: str | None = None,
+        active: bool = False,
+    ) -> None:
         rule = "─" * max(1, width - 2)
         screen.addstr(top, 1, rule[: max(1, width - 2)], curses.A_DIM)
         text = draft if draft else "Ask your question..."
-        prompt = self._clip(f"❯ {text}", max(1, width - 2))
+        caret = "▌" if active else ""
+        prompt = self._clip(f"❯ {text}{caret}", max(1, width - 2))
         screen.attron(curses.color_pair(1) | curses.A_BOLD)
         screen.addstr(top + 1, 1, prompt)
         screen.attroff(curses.color_pair(1) | curses.A_BOLD)
@@ -129,7 +123,7 @@ class TUIApp:
         for row in range(top, height):
             screen.move(row, 0)
             screen.clrtoeol()
-        self._draw_question_bar(screen, width, top, self.draft)
+        self._draw_question_bar(screen, width, top, self.draft, self.input_active)
         screen.addstr(height - 1, 1, self._metadata_line(width - 2), curses.A_DIM)
         screen.refresh()
 
@@ -137,13 +131,11 @@ class TUIApp:
         """Read one draft interactively with partial redraw and cached token encoding."""
         buffer: list[str] = []
         self.draft = ""
-        self._last_counted_draft = None
-        self.draft_tokens = self._count_draft("")
-        curses.curs_set(1)
+        self.input_active = True
+        curses.curs_set(0)
         try:
             while True:
                 self.draft = "".join(buffer)
-                self.draft_tokens = self._count_draft(self.draft)
                 height, width = screen.getmaxyx()
                 self._draw_input_bar(screen, width, height)
                 key = screen.get_wch()
@@ -151,7 +143,7 @@ class TUIApp:
                     return self.draft.strip()
                 if key == "\x1b":
                     self.draft = ""
-                    self.draft_tokens = self._count_draft("")
+                    self.input_active = False
                     self._draw_input_bar(screen, *screen.getmaxyx()[::-1])
                     return ""
                 if key in (curses.KEY_BACKSPACE, "\b", "\x7f"):
@@ -160,6 +152,7 @@ class TUIApp:
                 elif isinstance(key, str) and key.isprintable():
                     buffer.append(key)
         finally:
+            self.input_active = False
             curses.curs_set(0)
 
 

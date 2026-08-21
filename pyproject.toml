@@ -14,7 +14,6 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
-tokens = ["tiktoken>=0.7"]
 
 [project.scripts]
 termux-agent = "termux_agent.cli:main"
