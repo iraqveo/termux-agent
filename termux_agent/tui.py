@@ -49,7 +49,7 @@ class TUIApp:
         lines: list[str] = []
         messages = record.get("messages") or []
         if messages:
-            lines.extend(self._wrap(str(messages[-1].get("content", "")), max(4, width - 2))[:4])
+            lines.extend(self._wrap(f"You > {messages[-1].get('content', '')}", max(4, width - 2))[:4])
             lines.append("")
         prompt = self.draft if self.draft else "Ask your question..."
         if self.input_active:
@@ -113,7 +113,7 @@ class TUIApp:
         messages = record.get("messages") or []
         if not messages:
             return
-        content = str(messages[-1].get("content", ""))
+        content = f"You > {messages[-1].get('content', '')}"
         max_rows = max(1, height - 6)
         for row, line in enumerate(self._wrap(content, max(4, width - 4))[-max_rows:], start=1):
             screen.addstr(row, 2, self._clip(line, max(1, width - 4)))
