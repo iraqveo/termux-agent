@@ -42,7 +42,7 @@ class TUIApp:
     def render_lines(self, width: int = 100) -> list[str]:
         """Accessible text fallback used by tests and small terminals."""
         record = self.selected_record()
-        lines = ["TERMUX AGENT", "", "Conversation"]
+        lines = ["─" * min(width, 72), "❯ Ask your question...", "─" * min(width, 72), "TERMUX AGENT", "", "Conversation"]
         messages = record.get("messages") or []
         if not messages:
             lines.extend(["", "Hello.", "Type your message below to get started."])
@@ -76,18 +76,26 @@ class TUIApp:
         finally:
             curses.noecho()
 
+    def _draw_question_bar(self, screen: Any, width: int) -> None:
+        rule = "─" * max(1, width - 2)
+        screen.addstr(0, 1, rule[: max(1, width - 2)], curses.A_DIM)
+        screen.attron(curses.color_pair(1) | curses.A_BOLD)
+        screen.addstr(1, 1, self._clip("❯ Ask your question...", max(1, width - 2)))
+        screen.attroff(curses.color_pair(1) | curses.A_BOLD)
+        screen.addstr(2, 1, rule[: max(1, width - 2)], curses.A_DIM)
+
     def _draw_header(self, screen: Any, width: int) -> None:
         title = "TERMUX AGENT"
         x = max(1, (width - len(title)) // 2)
         screen.attron(curses.color_pair(1) | curses.A_BOLD)
-        screen.addstr(0, x, title)
+        screen.addstr(3, x, title)
         screen.attroff(curses.color_pair(1) | curses.A_BOLD)
-        screen.addstr(1, 1, "─" * max(1, width - 2), curses.A_DIM)
+        screen.addstr(4, 1, "─" * max(1, width - 2), curses.A_DIM)
 
     def _draw_messages(self, screen: Any, width: int, height: int) -> None:
         record = self.selected_record()
         messages = record.get("messages") or []
-        top = 3
+        top = 6
         bottom = height - 5
         if not messages:
             screen.attron(curses.color_pair(1) | curses.A_BOLD)
@@ -133,10 +141,11 @@ class TUIApp:
     def draw(self, screen: Any) -> None:
         screen.erase()
         height, width = screen.getmaxyx()
-        if height < 10 or width < 40:
-            screen.addstr(0, 0, "Resize Termux to at least 40x10 · q to quit")
+        if height < 13 or width < 40:
+            screen.addstr(0, 0, "Resize Termux to at least 40x13 · q to quit")
             screen.refresh()
             return
+        self._draw_question_bar(screen, width)
         self._draw_header(screen, width)
         self._draw_messages(screen, width, height)
         screen.addstr(height - 5, 1, self._clip(self.message, width - 2), curses.A_DIM)

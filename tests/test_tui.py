@@ -27,6 +27,7 @@ def test_tui_renders_session_state_and_audit_sections(tmp_path: Path) -> None:
     app = TUIApp(tmp_path, tmp_path / "sessions.db", session_id)
     rendered = "\n".join(app.render_lines(width=100))
     assert "Conversation" in rendered
+    assert "❯ Ask your question..." in rendered
     assert "↑ Send" in rendered
     assert "Hello" in rendered
     assert "governance" not in rendered.lower()
