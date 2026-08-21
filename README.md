@@ -81,7 +81,7 @@ termux-agent --root . build --command 'python -m pytest' --yes
 
 ## الواجهة التفاعلية المحلية
 
-The TUI uses Python's standard `curses` module, so it needs no web server or network port. It is a clean full-screen chat surface with no visible session list, state badges, or governance panels. A compact question rectangle at the bottom shows `❯ Ask your question...` and acts as the only input surface. The previous bottom composer was removed, while session persistence and governance remain internal in SQLite. The user sees the conversation above and the question bar below.
+The TUI uses Python's standard `curses` module, so it needs no web server or network port. The visible screen is intentionally minimal: all titles, conversation history, status text, session controls, governance panels, and footer hints are hidden. Only the bottom question rectangle with `❯ Ask your question...` remains visible; messages and governance data continue to be stored internally in SQLite.
 
 | Key | Action |
 |---|---|
@@ -90,7 +90,7 @@ The TUI uses Python's standard `curses` module, so it needs no web server or net
 | `?` | Show the keyboard hint. |
 | `q` or `Esc` | Quit. |
 
-On small Termux screens, resize the terminal to at least 40 columns by 10 rows.
+On small Termux screens, resize the terminal to at least 40 columns by 7 rows.
 
 ## نموذج MCP
 

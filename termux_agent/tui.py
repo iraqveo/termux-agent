@@ -41,17 +41,11 @@ class TUIApp:
 
     def render_lines(self, width: int = 100) -> list[str]:
         """Accessible text fallback used by tests and small terminals."""
-        record = self.selected_record()
-        lines = ["TERMUX AGENT", "", "Conversation"]
-        messages = record.get("messages") or []
-        if not messages:
-            lines.extend(["", "Hello.", "Type your message below to get started."])
-        else:
-            for item in messages[-8:]:
-                role = "You" if item.get("role") == "user" else "Agent"
-                lines.append(f"{role}: {self._clip(item.get('content', ''), max(20, width - 8))}")
-        lines.extend(["", self.message, "─" * min(width, 72), "❯ Ask your question...", "─" * min(width, 72)])
-        return lines
+        return [
+            "─" * min(width, 72),
+            "❯ Ask your question...",
+            "─" * min(width, 72),
+        ]
 
     def add_message(self, content: str) -> None:
         content = content.strip()
@@ -123,20 +117,16 @@ class TUIApp:
             row += 1
 
     def _draw_input_bar(self, screen: Any, width: int, height: int) -> None:
-        """Draw the only input surface at the bottom of the screen."""
+        """Draw the only visible surface at the bottom of the screen."""
         self._draw_question_bar(screen, width, height - 4)
-        screen.addstr(height - 1, 1, self._clip("Enter  Type message     q  Quit", width - 2), curses.A_DIM)
 
     def draw(self, screen: Any) -> None:
         screen.erase()
         height, width = screen.getmaxyx()
-        if height < 13 or width < 40:
-            screen.addstr(0, 0, "Resize Termux to at least 40x13 · q to quit")
+        if height < 7 or width < 40:
+            screen.addstr(0, 0, "Resize Termux to at least 40x7 · q to quit")
             screen.refresh()
             return
-        self._draw_header(screen, width)
-        self._draw_messages(screen, width, height)
-        screen.addstr(height - 5, 1, self._clip(self.message, width - 2), curses.A_DIM)
         self._draw_input_bar(screen, width, height)
         screen.refresh()
 
