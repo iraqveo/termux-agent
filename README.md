@@ -81,7 +81,7 @@ termux-agent --root . build --command 'python -m pytest' --yes
 
 ## الواجهة التفاعلية المحلية
 
-The TUI uses Python's standard `curses` module, so it needs no web server or network port. The visible screen is intentionally minimal: all titles, conversation history, status text, session controls, governance panels, and footer hints are hidden. The only visible elements are the bottom question rectangle with `❯ Ask your question...` and a compact metadata line showing `Model`, `Repo`, and `Tokens`. Messages and governance data continue to be stored internally in SQLite.
+The TUI uses Python's standard `curses` module, so it needs no web server or network port. The visible screen is intentionally minimal: titles, session controls, governance panels, and footer hints remain hidden. After sending, only the latest message is shown above the bottom question rectangle with `❯ Ask your question...`; a compact metadata line shows `Model`, `Repo`, `Draft`, and `Used`. Full message history and governance data continue to be stored internally in SQLite.
 
 | Key | Action |
 |---|---|

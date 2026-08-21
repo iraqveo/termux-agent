@@ -48,12 +48,19 @@ class TUIApp:
 
     def render_lines(self, width: int = 100) -> list[str]:
         """Accessible text fallback used by tests and small terminals."""
-        return [
+        record = self.selected_record()
+        lines: list[str] = []
+        messages = record.get("messages") or []
+        if messages:
+            lines.extend(self._wrap(messages[-1].get("content", ""), max(4, width - 2))[:4])
+            lines.append("")
+        lines.extend([
             "─" * min(width, 72),
             "❯ Ask your question...",
             "─" * min(width, 72),
             self._metadata_line(width),
-        ]
+        ])
+        return lines
 
     def _load_metadata(self) -> dict[str, Any]:
         usage = self.store.get_usage(self.session_id)
@@ -104,6 +111,17 @@ class TUIApp:
         screen.addstr(top + 1, 1, prompt)
         screen.attroff(curses.color_pair(1) | curses.A_BOLD)
         screen.addstr(top + 2, 1, rule[: max(1, width - 2)], curses.A_DIM)
+
+    def _draw_last_message(self, screen: Any, width: int, height: int) -> None:
+        """Show only the most recently sent message above the input bar."""
+        record = self.selected_record()
+        messages = record.get("messages") or []
+        if not messages:
+            return
+        content = str(messages[-1].get("content", ""))
+        max_rows = max(1, height - 6)
+        for row, line in enumerate(self._wrap(content, max(4, width - 4))[-max_rows:], start=1):
+            screen.addstr(row, 2, self._clip(line, max(1, width - 4)))
 
     def _draw_input_bar(self, screen: Any, width: int, height: int) -> None:
         """Redraw only the four bottom rows; typing never clears the whole screen."""
@@ -192,6 +210,7 @@ class TUIApp:
             screen.addstr(0, 0, "Resize Termux to at least 40x7 · q to quit")
             screen.refresh()
             return
+        self._draw_last_message(screen, width, height)
         self._draw_input_bar(screen, width, height)
         screen.refresh()
 
