@@ -74,6 +74,15 @@ class SessionStore:
                     last_failure_count INTEGER NOT NULL,
                     updated_at REAL NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS session_usage (
+                    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+                    model TEXT NOT NULL,
+                    repository TEXT NOT NULL,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    updated_at REAL NOT NULL
+                );
                 """
             )
 
@@ -97,6 +106,49 @@ class SessionStore:
                 (session_id, role, content, now),
             )
             db.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))
+
+    def record_usage(
+        self,
+        session_id: str,
+        model: str,
+        repository: str,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+    ) -> None:
+        if min(input_tokens, output_tokens) < 0:
+            raise ValueError("token counts cannot be negative")
+        now = time.time()
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO session_usage
+                   (session_id, model, repository, input_tokens, output_tokens, total_tokens, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(session_id) DO UPDATE SET
+                     model = excluded.model,
+                     repository = excluded.repository,
+                     input_tokens = session_usage.input_tokens + excluded.input_tokens,
+                     output_tokens = session_usage.output_tokens + excluded.output_tokens,
+                     total_tokens = session_usage.total_tokens + excluded.total_tokens,
+                     updated_at = excluded.updated_at""",
+                (session_id, model[:160], repository[:240], input_tokens, output_tokens, input_tokens + output_tokens, now),
+            )
+            db.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))
+
+    def get_usage(self, session_id: str) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT model, repository, input_tokens, output_tokens, total_tokens, updated_at "
+                "FROM session_usage WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        return dict(row) if row else {
+            "model": "Not connected",
+            "repository": "local workspace",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "updated_at": None,
+        }
 
     def save_governance_snapshot(self, session_id: str | None, snapshot: dict[str, Any]) -> None:
         if not session_id:
@@ -200,9 +252,15 @@ class SessionStore:
                 "FROM governance_snapshots WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
+            usage = db.execute(
+                "SELECT model, repository, input_tokens, output_tokens, total_tokens, updated_at "
+                "FROM session_usage WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
         return {
             "session": dict(session),
             "governance": dict(snapshot) if snapshot else None,
+            "usage": dict(usage) if usage else None,
             "messages": [dict(row) for row in messages],
             "governance_events": [dict(row) for row in events],
             "evidence": [dict(row) for row in evidence],

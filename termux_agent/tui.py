@@ -45,7 +45,15 @@ class TUIApp:
             "─" * min(width, 72),
             "❯ Ask your question...",
             "─" * min(width, 72),
+            self._metadata_line(width),
         ]
+
+    def _metadata_line(self, width: int) -> str:
+        usage = self.store.get_usage(self.session_id)
+        model = os.getenv("TERMUX_AGENT_MODEL", str(usage.get("model", "Not connected")))
+        repository = os.getenv("TERMUX_AGENT_REPOSITORY", "") or str(usage.get("repository", "")) or self.root.name
+        tokens = int(usage.get("total_tokens", 0))
+        return self._clip(f"Model: {model}  |  Repo: {repository}  |  Tokens: {tokens:,}", max(1, width))
 
     def add_message(self, content: str) -> None:
         content = content.strip()
@@ -119,6 +127,7 @@ class TUIApp:
     def _draw_input_bar(self, screen: Any, width: int, height: int) -> None:
         """Draw the only visible surface at the bottom of the screen."""
         self._draw_question_bar(screen, width, height - 4)
+        screen.addstr(height - 1, 1, self._metadata_line(width - 2), curses.A_DIM)
 
     def draw(self, screen: Any) -> None:
         screen.erase()

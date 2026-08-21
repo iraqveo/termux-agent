@@ -24,6 +24,7 @@ def test_tui_renders_session_state_and_audit_sections(tmp_path: Path) -> None:
     session_id = store.create("visual session")
     runtime = ToolRuntime(tmp_path, Policy(mode="build"), session_store=store, session_id=session_id)
     runtime.approve_execution()
+    store.record_usage(session_id, "gpt-test", "termux-agent", input_tokens=12, output_tokens=8)
     app = TUIApp(tmp_path, tmp_path / "sessions.db", session_id)
     rendered = "\n".join(app.render_lines(width=100))
     assert "❯ Ask your question..." in rendered
@@ -32,3 +33,6 @@ def test_tui_renders_session_state_and_audit_sections(tmp_path: Path) -> None:
     assert "Hello" not in rendered
     assert "governance" not in rendered.lower()
     assert "evidence" not in rendered.lower()
+    assert "Model: gpt-test" in rendered
+    assert "Repo: termux-agent" in rendered
+    assert "Tokens: 20" in rendered
