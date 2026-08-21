@@ -111,3 +111,50 @@ def test_tui_metadata_shows_model_repo_and_used_tokens(tmp_path: Path) -> None:
     assert "Repo: termux-agent" in rendered
     assert "Draft:" not in rendered
     assert "Used: 20" in rendered
+
+
+class FakeChatClient:
+    def __init__(self):
+        self.calls = []
+
+    def complete_messages(self, messages):
+        from termux_agent.api import APIResponse
+
+        self.calls.append(messages)
+        return APIResponse("real assistant reply", "gpt-chat", 7, 5)
+
+
+def test_tui_sends_history_and_persists_assistant_reply(tmp_path: Path):
+    store = SessionStore(tmp_path / "sessions.db")
+    session_id = store.create("api chat")
+    client = FakeChatClient()
+    app = TUIApp(tmp_path, tmp_path / "sessions.db", session_id, client=client)
+
+    app.add_message("hello agent")
+
+    record = app.selected_record()
+    assert [(item["role"], item["content"]) for item in record["messages"]] == [
+        ("user", "hello agent"),
+        ("assistant", "real assistant reply"),
+    ]
+    assert client.calls[-1][-1] == {"role": "user", "content": "hello agent"}
+    assert app._metadata["used"] == 12
+    assert "Agent > real assistant reply" in "\n".join(app.render_lines())
+
+
+def test_tui_keeps_user_message_when_provider_fails(tmp_path: Path):
+    class FailingClient:
+        def complete_messages(self, _messages):
+            from termux_agent.api import APIRequestError
+
+            raise APIRequestError("provider returned HTTP 402: insufficient credits")
+
+    store = SessionStore(tmp_path / "sessions.db")
+    session_id = store.create("failed api chat")
+    app = TUIApp(tmp_path, tmp_path / "sessions.db", session_id, client=FailingClient())
+    app.add_message("please answer")
+
+    record = app.selected_record()
+    assert len(record["messages"]) == 1
+    assert record["messages"][0]["role"] == "user"
+    assert "402" in app.message

@@ -1,11 +1,9 @@
-"""Safe OpenAI-compatible API integration for real device tests."""
-
 from __future__ import annotations
 
 import json
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -30,6 +28,9 @@ class APIResponse:
         return self.input_tokens + self.output_tokens
 
 
+ChatMessage = Mapping[str, str]
+
+
 class OpenAICompatibleClient:
     """Small stdlib-only client for OpenAI-compatible chat-completions APIs."""
 
@@ -52,6 +53,7 @@ class OpenAICompatibleClient:
             raise APIConfigurationError("TERMUX_AGENT_BASE_URL must use http:// or https://")
 
     def complete(self, prompt: str, system: str | None = None) -> APIResponse:
+        """Complete one prompt, retaining the original CLI-compatible API."""
         prompt = prompt.strip()
         if not prompt:
             raise ValueError("prompt cannot be empty")
@@ -59,14 +61,64 @@ class OpenAICompatibleClient:
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        payload = json.dumps({"model": self.model, "messages": messages, "temperature": 0.2}).encode("utf-8")
+        return self.complete_messages(messages)
+
+    def complete_messages(self, messages: Sequence[ChatMessage]) -> APIResponse:
+        """Send a multi-turn conversation to the provider."""
+        normalized: list[dict[str, str]] = []
+        for message in messages:
+            role = str(message.get("role", "")).strip()
+            content = str(message.get("content", ""))
+            if role not in {"system", "user", "assistant"}:
+                raise ValueError(f"unsupported chat role: {role or 'empty'}")
+            if content:
+                normalized.append({"role": role, "content": content})
+        if not normalized:
+            raise ValueError("messages cannot be empty")
+        if normalized[-1]["role"] != "user":
+            raise ValueError("the last chat message must be from the user")
+        payload = {
+            "model": self.model,
+            "messages": normalized,
+            "temperature": 0.2,
+        }
+        return self._request(payload)
+
+    def list_models(self) -> list[str]:
+        """Return model IDs exposed by the configured provider."""
+        request = Request(
+            f"{self.base_url}/models",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "User-Agent": "termux-agent/0.3",
+            },
+            method="GET",
+        )
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                raw = response.read().decode("utf-8")
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")[:500]
+            raise APIRequestError(self._safe_error(f"provider returned HTTP {exc.code}: {body}")) from None
+        except URLError as exc:
+            raise APIRequestError(self._safe_error(f"network error: {exc.reason}")) from None
+        except TimeoutError:
+            raise APIRequestError("provider request timed out") from None
+        try:
+            data = json.loads(raw)
+            entries = data.get("data", [])
+            return [str(item["id"]) for item in entries if isinstance(item, dict) and item.get("id")]
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise APIRequestError("provider returned an invalid models response") from exc
+
+    def _request(self, payload: dict[str, Any]) -> APIResponse:
         request = Request(
             f"{self.base_url}/chat/completions",
-            data=payload,
+            data=json.dumps(payload).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": "termux-agent/0.2",
+                "User-Agent": "termux-agent/0.3",
             },
             method="POST",
         )

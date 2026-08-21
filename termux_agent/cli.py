@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 
+from .api import APIRequestError
 from .permissions import EvidenceKind, GovernanceError, PermissionError, Policy
 from .session import SessionStore
 from .tools import ToolRuntime
@@ -46,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     api_sub = api.add_subparsers(dest="api_command", required=True)
     api_test = api_sub.add_parser("test", help="send one real request using the environment API key")
     api_test.add_argument("--prompt", default="Reply with exactly: TERMUX_AGENT_API_OK")
+    api_sub.add_parser("models", help="list model IDs exposed by the configured provider")
 
     session = sub.add_parser("session", help="manage local sessions")
     session_sub = session.add_subparsers(dest="session_command", required=True)
@@ -96,6 +98,9 @@ def main(argv: list[str] | None = None) -> int:
             from .api import OpenAICompatibleClient
 
             client = OpenAICompatibleClient()
+            if args.api_command == "models":
+                emit({"base_url": client.base_url, "models": client.list_models()})
+                return 0
             store, session_id = get_store_and_session(args)
             response = client.complete(args.prompt)
             repository = os.getenv("TERMUX_AGENT_REPOSITORY", Path(args.root).expanduser().resolve().name)
@@ -162,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
             emit(runtime.run_command(args.run_command))
         emit({"session_id": session_id, **runtime.status()})
         return 0
-    except (PermissionError, GovernanceError, FileNotFoundError, ValueError, NotADirectoryError) as exc:
+    except (APIRequestError, PermissionError, GovernanceError, FileNotFoundError, ValueError, NotADirectoryError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 

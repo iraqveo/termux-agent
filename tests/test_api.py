@@ -62,3 +62,50 @@ def test_provider_errors_redact_key(monkeypatch):
         client.complete("ping")
     assert "secret-key" not in str(error.value)
     assert "[redacted]" in str(error.value)
+
+
+def test_client_sends_multi_turn_history(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data.decode())
+        return FakeResponse({
+            "model": "gpt-chat",
+            "choices": [{"message": {"content": "second answer"}}],
+            "usage": {"prompt_tokens": 9, "completion_tokens": 4},
+        })
+
+    monkeypatch.setattr(api, "urlopen", fake_urlopen)
+    client = OpenAICompatibleClient(api_key="secret-key", model="gpt-chat")
+    response = client.complete_messages([
+        {"role": "system", "content": "Be concise."},
+        {"role": "user", "content": "first question"},
+        {"role": "assistant", "content": "first answer"},
+        {"role": "user", "content": "second question"},
+    ])
+    assert response.text == "second answer"
+    assert captured["body"]["messages"][-2:] == [
+        {"role": "assistant", "content": "first answer"},
+        {"role": "user", "content": "second question"},
+    ]
+
+
+def test_client_rejects_conversation_without_user_turn(monkeypatch):
+    monkeypatch.setattr(api, "urlopen", lambda *_args, **_kwargs: pytest.fail("request should not be sent"))
+    client = OpenAICompatibleClient(api_key="secret-key")
+    with pytest.raises(ValueError, match="last chat message"):
+        client.complete_messages([{"role": "assistant", "content": "not a prompt"}])
+
+
+def test_client_lists_provider_models(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        return FakeResponse({"data": [{"id": "model-a"}, {"id": "model-b"}]})
+
+    monkeypatch.setattr(api, "urlopen", fake_urlopen)
+    client = OpenAICompatibleClient(api_key="secret-key", base_url="https://provider.example/v1")
+    assert client.list_models() == ["model-a", "model-b"]
+    assert captured["url"] == "https://provider.example/v1/models"

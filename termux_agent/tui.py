@@ -1,5 +1,3 @@
-"""Clean, English, chat-first local TUI for Termux Agent."""
-
 from __future__ import annotations
 
 import argparse
@@ -9,14 +7,15 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
+from .api import APIConfigurationError, APIRequestError, OpenAICompatibleClient
 from .permissions import EvidenceKind
 from .session import SessionStore
 
 
 class TUIApp:
-    """Minimal mobile chat surface; persistence and governance stay behind the UI."""
+    """Minimal mobile chat surface with optional real provider-backed replies."""
 
-    def __init__(self, root: Path, database: Path, session_id: str | None = None):
+    def __init__(self, root: Path, database: Path, session_id: str | None = None, client: Any | None = None):
         self.root = root.expanduser().resolve()
         self.store = SessionStore(database.expanduser())
         self.session_id = session_id
@@ -24,10 +23,18 @@ class TUIApp:
         self.draft = ""
         self.input_active = False
         self.exit_requested = False
+        self.client = client if client is not None else self._create_client()
         if self.session_id is None:
             sessions = self.store.list(limit=1)
             self.session_id = sessions[0]["id"] if sessions else self.store.create("Chat session")
         self._metadata = self._load_metadata()
+
+    @staticmethod
+    def _create_client() -> Any | None:
+        try:
+            return OpenAICompatibleClient()
+        except APIConfigurationError:
+            return None
 
     @staticmethod
     def _clip(value: object, width: int) -> str:
@@ -49,7 +56,9 @@ class TUIApp:
         lines: list[str] = []
         messages = record.get("messages") or []
         if messages:
-            lines.extend(self._wrap(f"You > {messages[-1].get('content', '')}", max(4, width - 2))[:4])
+            last = messages[-1]
+            label = "You" if last.get("role") == "user" else "Agent"
+            lines.extend(self._wrap(f"{label} > {last.get('content', '')}", max(4, width - 2))[:4])
             lines.append("")
         prompt = self.draft if self.draft else "Ask your question..."
         if self.input_active:
@@ -77,6 +86,23 @@ class TUIApp:
             max(1, width),
         )
 
+    def _conversation_messages(self) -> list[dict[str, str]]:
+        record = self.selected_record()
+        history = [
+            {"role": str(item.get("role", "")), "content": str(item.get("content", ""))}
+            for item in (record.get("messages") or [])
+            if item.get("role") in {"user", "assistant"} and item.get("content")
+        ]
+        try:
+            limit = max(2, int(os.getenv("TERMUX_AGENT_MAX_HISTORY", "20")))
+        except ValueError:
+            limit = 20
+        history = history[-limit:]
+        system = os.getenv("TERMUX_AGENT_SYSTEM_PROMPT", "").strip()
+        if system:
+            return [{"role": "system", "content": system}, *history]
+        return history
+
     def add_message(self, content: str) -> None:
         content = content.strip()
         if not content:
@@ -86,7 +112,30 @@ class TUIApp:
         self.store.add_evidence(self.session_id, EvidenceKind.UNKNOWN.value, "tui.message", content)
         self.draft = ""
         self.input_active = False
-        self.message = "Saved locally"
+        if self.client is None:
+            self.message = "Saved locally · set TERMUX_AGENT_API_KEY to chat"
+            self._metadata = self._load_metadata()
+            return
+
+        self.message = "Thinking..."
+        try:
+            response = self.client.complete_messages(self._conversation_messages())
+        except (APIRequestError, APIConfigurationError, OSError, ValueError) as exc:
+            # Provider errors are already redacted by APIRequestError; do not print the key here.
+            self.message = f"API error: {exc}"
+            self._metadata = self._load_metadata()
+            return
+
+        self.store.add_message(self.session_id, "assistant", response.text)
+        repository = os.getenv("TERMUX_AGENT_REPOSITORY", self.root.name)
+        self.store.record_usage(
+            self.session_id,
+            response.model,
+            repository,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+        )
+        self.message = "Ready"
         self._metadata = self._load_metadata()
 
     def _draw_question_bar(
@@ -108,12 +157,14 @@ class TUIApp:
         screen.addstr(top + 2, 1, rule[: max(1, width - 2)], curses.A_DIM)
 
     def _draw_last_message(self, screen: Any, width: int, height: int) -> None:
-        """Show only the most recently sent message above the input bar."""
+        """Compatibility renderer for the latest message in compact layouts."""
         record = self.selected_record()
         messages = record.get("messages") or []
         if not messages:
             return
-        content = f"You > {messages[-1].get('content', '')}"
+        last = messages[-1]
+        label = "You" if last.get("role") == "user" else "Agent"
+        content = f"{label} > {last.get('content', '')}"
         max_rows = max(1, height - 6)
         for row, line in enumerate(self._wrap(content, max(4, width - 4))[-max_rows:], start=1):
             screen.addstr(row, 2, self._clip(line, max(1, width - 4)))
@@ -168,8 +219,6 @@ class TUIApp:
             self.input_active = False
             curses.curs_set(0)
 
-
-
     def _draw_header(self, screen: Any, width: int) -> None:
         title = "TERMUX AGENT"
         x = max(1, (width - len(title)) // 2)
@@ -181,7 +230,7 @@ class TUIApp:
     def _draw_messages(self, screen: Any, width: int, height: int) -> None:
         record = self.selected_record()
         messages = record.get("messages") or []
-        top = 3
+        top = 1
         bottom = height - 5
         if not messages:
             screen.attron(curses.color_pair(1) | curses.A_BOLD)
@@ -208,7 +257,6 @@ class TUIApp:
                 row += 1
             row += 1
 
-
     def draw(self, screen: Any) -> None:
         screen.erase()
         height, width = screen.getmaxyx()
@@ -216,7 +264,9 @@ class TUIApp:
             screen.addstr(0, 0, "Resize Termux to at least 40x7 · q to quit")
             screen.refresh()
             return
-        self._draw_last_message(screen, width, height)
+        self._draw_messages(screen, width, height)
+        if self.message != "Ready":
+            screen.addstr(height - 5, 1, self._clip(self.message, width - 2), curses.A_DIM)
         self._draw_input_bar(screen, width, height)
         screen.refresh()
 
@@ -237,7 +287,8 @@ class TUIApp:
             message = self.read_draft(screen, first_key)
             if self.exit_requested:
                 return
-            self.add_message(message)
+            if message:
+                self.add_message(message)
 
 
 def run_tui(root: Path, database: Path, session_id: str | None = None) -> None:

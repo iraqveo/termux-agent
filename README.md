@@ -79,28 +79,53 @@ termux-agent --root . governance approve
 termux-agent --root . build --command 'python -m pytest' --yes
 ```
 
-## Real API connectivity test
+## Real API connectivity and interactive chat
 
-The agent can send a real one-request connectivity test to an OpenAI-compatible chat-completions endpoint. The API key is read only from the Termux process environment and is never written to SQLite, displayed in the TUI, committed to Git, or included in error messages. Do not paste the key into chat or into a source file.
+The agent can send real multi-turn requests to any OpenAI-compatible chat-completions endpoint. The API key is read only from the Termux process environment and is never written to SQLite, displayed in the TUI, committed to Git, or included in error messages. Do not paste the key into chat or into a source file.
 
-In Termux, set the key for the current shell and run the test:
+First configure the provider for the current shell. The following example uses OpenRouter; replace the model with one that is visible and enabled in your account. Do not assume that a model name is funded merely because it exists in a public catalog.
 
 ```bash
-read -rsp "API key: " TERMUX_AGENT_API_KEY; export TERMUX_AGENT_API_KEY; echo
-export TERMUX_AGENT_MODEL="gpt-4o-mini"
-export TERMUX_AGENT_BASE_URL="https://api.openai.com/v1"
-termux-agent --root "$HOME/termux-agent" api test
+read -rsp "API key: " TERMUX_AGENT_API_KEY
+export TERMUX_AGENT_API_KEY
+echo
+export TERMUX_AGENT_BASE_URL="https://openrouter.ai/api/v1"
+export TERMUX_AGENT_MODEL="your-enabled-model-id"
+export TERMUX_AGENT_REPOSITORY="iraqveo/termux-agent"
 ```
 
-The command sends the default prompt `Reply with exactly: TERMUX_AGENT_API_OK`, prints the provider reply and usage totals, and records only the model, repository, and token counts in the local session database. You can provide another safe test prompt with `--prompt`. For OpenAI-compatible providers, change `TERMUX_AGENT_BASE_URL` and `TERMUX_AGENT_MODEL`; the default endpoint is `https://api.openai.com/v1`.
+Before opening the TUI, discover the model IDs exposed by the configured provider and run one small request:
+
+```bash
+termux-agent --root "$HOME/termux-agent" api models
+termux-agent --root "$HOME/termux-agent" api test --prompt "Reply with exactly: TERMUX_AGENT_API_OK"
+```
+
+The `api models` command calls the provider's `/models` endpoint. The `api test` command calls `/chat/completions`, prints the provider reply and usage totals, and records only the model, repository, and token counts in the local SQLite session database. A provider response such as HTTP 402 means the key reached the provider but the account needs credits; HTTP 404 commonly means the selected model is not enabled or does not exist at that endpoint.
+
+### Start the real chat inside Termux
+
+After the one-request test succeeds, launch the interactive chat:
+
+```bash
+termux-agent --root "$HOME/termux-agent" tui
+```
+
+Each submitted message is saved locally, sent together with the recent conversation history, and followed by the assistant response in the same TUI. The default context contains the latest 20 user/assistant messages; change it with `TERMUX_AGENT_MAX_HISTORY`. An optional system instruction can be supplied through `TERMUX_AGENT_SYSTEM_PROMPT`. Neither setting contains or stores the API key.
+
+```bash
+export TERMUX_AGENT_MAX_HISTORY=20
+export TERMUX_AGENT_SYSTEM_PROMPT="You are a concise coding assistant. Never execute commands without explicit governance approval."
+termux-agent --root "$HOME/termux-agent" tui
+```
+
+The TUI uses Python's standard `curses` module, so it needs no web server or network port. The visible screen remains minimal: session controls and governance panels stay hidden, while the chat transcript shows `You` and `Agent` messages above the single bottom input rectangle. The footer shows `Model`, `Repo`, and accumulated provider `Used` tokens. If no key is configured, the interface still works as a local draft/session viewer and tells the user to set `TERMUX_AGENT_API_KEY` before expecting an online reply.
 
 ## الواجهة التفاعلية المحلية
 
-The TUI uses Python's standard `curses` module, so it needs no web server or network port. The visible screen is intentionally minimal: titles, session controls, governance panels, and footer hints remain hidden. After sending, only the latest user message is shown above the single bottom question rectangle with the `You >` prefix, for example `You > iraq`; a compact metadata line shows `Model`, `Repo`, and `Used`. The screen starts with one idle bar, activates it on the first typed key, shows the caret only while a draft exists, and uses `Enter` to send. Full message history and governance data continue to be stored internally in SQLite.
-
 | Key | Action |
 |---|---|
-| `Enter` or `i` | Open the input prompt and save a message locally. |
+| `Enter` or `i` | Open the input prompt, send the message to the configured model, and display the assistant reply. |
 | `r` | Refresh the view. |
 | `?` | Show the keyboard hint. |
 | `q` or `Esc` | Quit. |
