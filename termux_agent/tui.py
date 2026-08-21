@@ -1,4 +1,4 @@
-"""Clean, chat-first local TUI for Termux Agent."""
+"""Clean, English, chat-first local TUI for Termux Agent."""
 
 from __future__ import annotations
 
@@ -20,10 +20,10 @@ class TUIApp:
         self.root = root.expanduser().resolve()
         self.store = SessionStore(database.expanduser())
         self.session_id = session_id
-        self.message = "جاهز"
+        self.message = "Ready"
         if self.session_id is None:
             sessions = self.store.list(limit=1)
-            self.session_id = sessions[0]["id"] if sessions else self.store.create("جلسة محادثة")
+            self.session_id = sessions[0]["id"] if sessions else self.store.create("Chat session")
 
     @staticmethod
     def _clip(value: object, width: int) -> str:
@@ -45,26 +45,26 @@ class TUIApp:
         lines = ["TERMUX AGENT", "", "Conversation"]
         messages = record.get("messages") or []
         if not messages:
-            lines.extend(["", "مرحباً.", "اكتب رسالتك في الأسفل للبدء."])
+            lines.extend(["", "Hello.", "Type your message below to get started."])
         else:
             for item in messages[-8:]:
-                role = "أنت" if item.get("role") == "user" else "وكيل"
+                role = "You" if item.get("role") == "user" else "Agent"
                 lines.append(f"{role}: {self._clip(item.get('content', ''), max(20, width - 8))}")
-        lines.extend(["", self.message, "↑ إرسال"])
+        lines.extend(["", self.message, "↑ Send"])
         return lines
 
     def add_message(self, content: str) -> None:
         content = content.strip()
         if not content:
-            self.message = "اكتب رسالة أولاً"
+            self.message = "Please type a message first"
             return
         self.store.add_message(self.session_id, "user", content)
         self.store.add_evidence(self.session_id, EvidenceKind.UNKNOWN.value, "tui.message", content)
-        self.message = "تم الحفظ محلياً"
+        self.message = "Saved locally"
 
     def _prompt(self, screen: Any) -> str:
         height, width = screen.getmaxyx()
-        prompt = "اكتب رسالتك: "
+        prompt = "Message: "
         screen.move(height - 1, 1)
         screen.clrtoeol()
         screen.addstr(height - 1, 1, self._clip(prompt, width - 2))
@@ -91,9 +91,9 @@ class TUIApp:
         bottom = height - 5
         if not messages:
             screen.attron(curses.color_pair(1) | curses.A_BOLD)
-            screen.addstr(top, 2, self._clip("مرحباً، كيف أساعدك؟", width - 4))
+            screen.addstr(top, 2, self._clip("Hello, how can I help?", width - 4))
             screen.attroff(curses.color_pair(1) | curses.A_BOLD)
-            screen.addstr(top + 2, 2, self._clip("اكتب طلبك في الأسفل ثم اضغط Enter.", width - 4), curses.A_DIM)
+            screen.addstr(top + 2, 2, self._clip("Type your request below and press Enter.", width - 4), curses.A_DIM)
             return
 
         row = top
@@ -101,7 +101,7 @@ class TUIApp:
             if row >= bottom:
                 break
             is_user = item.get("role") == "user"
-            label = "أنت" if is_user else "الوكيل"
+            label = "You" if is_user else "Agent"
             color = 2 if is_user else 1
             screen.attron(curses.color_pair(color) | curses.A_BOLD)
             screen.addstr(row, 2, label)
@@ -115,27 +115,26 @@ class TUIApp:
             row += 1
 
     def _draw_composer(self, screen: Any, width: int, height: int) -> None:
-        """Draw exactly two compact bottom rows with a centered send arrow."""
+        """Draw a compact two-row composer with a centered send affordance."""
         left = 1
-        inner = max(8, width - 2)
+        inner = max(16, width - 2)
         top = height - 4
-        line_one = "╭" + "─" * (inner - 2) + "╮"
-        line_two = "│" + " " * (inner - 2) + "│"
-        screen.addstr(top, left, line_one[: width - 1])
-        screen.addstr(top + 1, left, line_two[: width - 1])
-        arrow = "↑"
-        send = " إرسال "
-        center = max(left + 2, (width - len(arrow + send)) // 2)
+        top_border = "╭" + "─" * (inner - 2) + "╮"
+        input_row = "│  Type your message…" + " " * max(0, inner - 23) + "│"
+        screen.addstr(top, left, top_border[: width - 1])
+        screen.addstr(top + 1, left, input_row[: width - 1])
+        send_label = "↑ Send"
+        center = max(left + 2, (width - len(send_label)) // 2)
         screen.attron(curses.color_pair(1) | curses.A_BOLD)
-        screen.addstr(top + 1, center, f"{arrow}{send}")
+        screen.addstr(top + 1, center, send_label[: max(1, width - center - 1)])
         screen.attroff(curses.color_pair(1) | curses.A_BOLD)
-        screen.addstr(height - 1, 1, self._clip("Enter كتابة رسالة   q خروج", width - 2), curses.A_DIM)
+        screen.addstr(height - 1, 1, self._clip("Enter  Type message     q  Quit", width - 2), curses.A_DIM)
 
     def draw(self, screen: Any) -> None:
         screen.erase()
         height, width = screen.getmaxyx()
         if height < 10 or width < 40:
-            screen.addstr(0, 0, "كبّر نافذة Termux إلى 40x10 على الأقل · q للخروج")
+            screen.addstr(0, 0, "Resize Termux to at least 40x10 · q to quit")
             screen.refresh()
             return
         self._draw_header(screen, width)
@@ -159,9 +158,9 @@ class TUIApp:
             if key in (10, 13, ord("i")):
                 self.add_message(self._prompt(screen))
             elif key == ord("r"):
-                self.message = "تم التحديث"
+                self.message = "Refreshed"
             elif key == ord("?"):
-                self.message = "Enter كتابة رسالة · q خروج"
+                self.message = "Enter  Type message     q  Quit"
 
 
 def run_tui(root: Path, database: Path, session_id: str | None = None) -> None:

@@ -81,16 +81,16 @@ termux-agent --root . build --command 'python -m pytest' --yes
 
 ## الواجهة التفاعلية المحلية
 
-تعمل الواجهة عبر `curses` من المكتبة القياسية، ولا تحتاج إلى خادم ويب أو منفذ شبكة. أصبحت الواجهة الآن **محادثة كاملة العرض** بلا قائمة جلسات أو شارات حالات أو سجل حوكمة ظاهر. تبقى الجلسات والحوكمة محفوظة داخلياً في SQLite، بينما يرى المستخدم الرسائل فقط وcomposer سفلياً نظيفاً من سطرين يتوسطه سهم إرسال.
+The TUI uses Python's standard `curses` module, so it needs no web server or network port. It is a clean full-screen chat surface with no visible session list, state badges, or governance panels. Session persistence and governance remain internal in SQLite, while the user sees the conversation and a compact two-row composer with a centered send arrow.
 
-| المفتاح | الوظيفة |
+| Key | Action |
 |---|---|
-| `Enter` أو `i` | فتح الإدخال وكتابة رسالة ثم حفظها محلياً. |
-| `r` | تحديث العرض. |
-| `?` | عرض تذكير مختصر. |
-| `q` أو `Esc` | الخروج. |
+| `Enter` or `i` | Open the input prompt and save a message locally. |
+| `r` | Refresh the view. |
+| `?` | Show the keyboard hint. |
+| `q` or `Esc` | Quit. |
 
-إذا كانت شاشة Termux صغيرة، كبّر النافذة إلى 40 عموداً و10 أسطر على الأقل.
+On small Termux screens, resize the terminal to at least 40 columns by 10 rows.
 
 ## نموذج MCP
 
